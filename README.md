@@ -33,28 +33,31 @@ Swarm:           Agent A ←→ Agent B ←→ Agent C → Consensus
 
 ---
 
-## 🧬 How It Works — The 4-Step Mechanism
+## 🧬 How It Works — The Paper's Mechanism
 
-The paper identifies a causal chain that produces cooperation. This skill translates each step into practical agent orchestration:
+The paper identifies a causal chain that produces cooperation (§3.2). This skill translates each step into practical agent orchestration:
 
 ```mermaid
 graph LR
     A["🎭 Diversity<br/><i>Mixed models & roles</i>"] --> B["🔍 Inference<br/><i>Agents read anonymous history</i>"]
-    B --> C["⚔️ Mutual Shaping<br/><i>Critique & adaptation pressure</i>"]
-    C --> D["🤝 Cooperation<br/><i>Convergent quality solution</i>"]
+    B --> C["🔗 Cross-Communication<br/><i>Agents observe each other's work</i>"]
+    C --> D["⚔️ Mutual Shaping<br/><i>Critique & adaptation pressure</i>"]
+    D --> E["🤝 Cooperation<br/><i>Convergent quality solution</i>"]
 
     style A fill:#e1f5fe,stroke:#0288d1,stroke-width:2px,color:#000
     style B fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
-    style C fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
-    style D fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
+    style C fill:#fff8e1,stroke:#f9a825,stroke-width:2px,color:#000
+    style D fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
+    style E fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
 ```
 
 | Step | Paper Mechanism | Skill Implementation |
 |------|----------------|---------------------|
-| **1. Diversity** | Train agents against diverse co-player pool | Use ≥2 different LLM models (Opus, Sonnet, GPT, Gemini) |
-| **2. In-Context Inference** | Agents infer co-player strategy from observations | Each agent receives full anonymous interaction history |
-| **3. Mutual Shaping** | Adaptiveness creates vulnerability → pressure to cooperate | Critics score work; low scores trigger revision rounds |
-| **4. Convergence** | Cooperation emerges as stable equilibrium | Quality ≥7/10 across all agents → consensus achieved |
+| **1. Diversity** | Train agents against diverse co-player pool (§3.1) | Use ≥2 different LLM models (Opus, Sonnet, GPT, Gemini) |
+| **2. In-Context Inference** | Agents infer co-player strategy from observations (§3.2) | Each agent receives full anonymous interaction history |
+| **3. Cross-Communication** | Agents observe and react to each other's outputs (§3.2) | Parallel coders see other workstreams; critics see all changes |
+| **4. Mutual Shaping** | Adaptiveness creates vulnerability → pressure to cooperate (§3.2) | Critics score work; low scores trigger revision with cross-awareness |
+| **5. Convergence** | Cooperation emerges as stable equilibrium (§4) | Quality ≥7/10 across all agents → consensus achieved |
 
 ---
 
@@ -75,7 +78,7 @@ Before launching a swarm, these Copilot CLI commands optimize the experience:
 
 ## 🤖 Leverages Existing Custom Agents
 
-v4.0 uses Copilot CLI's built-in custom agents instead of reinventing prompts:
+The skill uses Copilot CLI's built-in custom agents instead of reinventing prompts:
 
 | Swarm Role | Custom Agent | Why |
 |-----------|-------------|-----|
@@ -379,9 +382,9 @@ Every contribution is scored to create the **gradient pressure** that drives imp
 
 ---
 
-## 📜 Three Rules
+## 📜 Four Rules
 
-These aren't suggestions — they're **empirically validated** by the paper's ablation experiments. Violating any one causes cooperation to collapse:
+These aren't suggestions — they're **empirically validated** by the paper's ablation experiments (§3.1, §3.2). Violating any one causes cooperation to collapse:
 
 <table>
 <tr>
@@ -513,6 +516,12 @@ Copilot selects **Full Swarm** — Explorers map the auth code in parallel, Arch
 
 Copilot selects **Debate** — two proposers argue for each approach with different models, cross-critique, rebut, then Synthesizer picks a winner with reasoning.
 
+### Massive — Blitz
+
+> *"Swarm this: ~/Projects/my-platform — there's a lot of unwired logic and stubs that need to be completed"*
+
+Copilot selects **Blitz** — 5 parallel explorers (structure/patterns/deps/gaps/domain) recon the codebase, Architect triages into P0/P1/P2 workstreams, N parallel coders build simultaneously with cross-awareness of each other's workstreams, parallel critics review in batches, integration check catches cross-workstream conflicts, Synthesizer produces confidence score.
+
 ---
 
 ## 🔒 Parallel Safety
@@ -571,6 +580,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 **Key findings translated into this skill:**
 - 🎭 Agent diversity forces in-context strategy inference (§3.1)
 - 👤 Anonymous history prevents cooperation collapse (§3.1 ablation)
+- 🔗 Cross-communication enables mutual observation and adaptation (§3.2)
 - ⚔️ Mutual shaping through adaptiveness drives quality convergence (§3.2)
 - 🏗️ Decentralized orchestration — set up interaction, don't dictate outcomes (§4)
 - ⏱️ Dual timescale — fast adaptation within a swarm, slow learning across sessions (§1)
