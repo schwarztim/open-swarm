@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-Skill-8957e5?logo=github)](https://docs.github.com/copilot)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
-[![Version](https://img.shields.io/badge/version-4.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-5.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -101,28 +101,38 @@ flowchart TD
     
     TIER -->|"Simple<br/>1-2 files"| DUO["<b>Duo</b><br/>2 agents"]
     TIER -->|"Medium<br/>multi-file"| TRIO["<b>Trio</b><br/>3 agents"]
-    TIER -->|"Complex<br/>cross-domain"| FULL["<b>Full Swarm</b><br/>5-6 agents"]
+    TIER -->|"Complex<br/>cross-domain"| FULL["<b>Full Swarm</b><br/>6+ agents"]
+    TIER -->|"Massive<br/>50+ files"| BLITZ["<b>Blitz</b><br/>10+ agents"]
     TIER -->|"Decision<br/>ambiguous"| DEBATE["<b>Debate</b><br/>N+1 agents"]
     
     DUO --> EXECUTE
     TRIO --> EXECUTE
     FULL --> EXECUTE
+    BLITZ --> EXECUTE
     DEBATE --> EXECUTE
     
-    EXECUTE["Execute Rounds<br/><i>/tasks to monitor</i>"] --> SCORE{"Score ≥ 7/10?"}
-    SCORE -->|"✅ Yes"| CONVERGE([🤝 Converged Solution])
+    EXECUTE["Execute Rounds<br/><i>Cross-communication via<br/>anonymous history</i>"] --> REVIEW{"🔍 Review<br/>(MANDATORY)"}
+    REVIEW --> SCORE{"Score ≥ 7/10?"}
+    SCORE -->|"✅ Yes"| INTEGRATE{"Cross-workstream<br/>integration check"}
     SCORE -->|"❌ No"| ROUND{"Round < 3?"}
-    ROUND -->|"Yes"| EXECUTE
+    ROUND -->|"Yes"| FEEDBACK["Feed critique +<br/>other workstreams<br/>back to coder"]
+    FEEDBACK --> REVIEW
     ROUND -->|"No"| SYNTH["Synthesizer<br/>forces decision"]
+    INTEGRATE -->|"✅ Clean"| CONVERGE([🤝 Converged Solution])
+    INTEGRATE -->|"❌ Conflicts"| FEEDBACK
     SYNTH --> CONVERGE
 
     style START fill:#1a1a2e,stroke:#e94560,stroke-width:2px,color:#fff
     style PREFLIGHT fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
     style CONVERGE fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#fff
     style SCORE fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
+    style REVIEW fill:#e94560,stroke:#fff,stroke-width:3px,color:#fff
+    style INTEGRATE fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
+    style FEEDBACK fill:#0f3460,color:#fff
     style DUO fill:#0f3460,color:#fff
     style TRIO fill:#0f3460,color:#fff
     style FULL fill:#0f3460,color:#fff
+    style BLITZ fill:#e94560,color:#fff
     style DEBATE fill:#0f3460,color:#fff
 ```
 
@@ -130,28 +140,35 @@ flowchart TD
 
 <table>
 <tr>
-<td width="25%" align="center">
+<td width="20%" align="center">
 
 **🟢 Duo**
 <br/>2 agents · ~3 calls
 <br/><sub>Implementation + review</sub>
 
 </td>
-<td width="25%" align="center">
+<td width="20%" align="center">
 
 **🟡 Trio**
 <br/>3 agents · ~6 calls
 <br/><sub>Design + code + validation</sub>
 
 </td>
-<td width="25%" align="center">
+<td width="20%" align="center">
 
 **🔴 Full Swarm**
-<br/>5-6 agents · ~12 calls
+<br/>6+ agents · ~14 calls
 <br/><sub>Architecture, security-critical</sub>
 
 </td>
-<td width="25%" align="center">
+<td width="20%" align="center">
+
+**⚡ Blitz**
+<br/>10+ agents · ~20+ calls
+<br/><sub>Massive codebases, 50+ files</sub>
+
+</td>
+<td width="20%" align="center">
 
 **🟣 Debate**
 <br/>N+1 agents · ~3N+1 calls
@@ -215,26 +232,31 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant U as 🎯 User Task
-    participant E as 🔎 Explorers ×2<br/>(Haiku)
+    participant E as 🔎 Explorers ×3<br/>(Haiku)
     participant A as 📐 architect<br/>(Opus)
-    participant C as 🔨 clean-code<br/>(Sonnet)
+    participant C as 🔨 Coders ×3<br/>(Mixed models)
     participant R as 🔍 code-review<br/>(Codex)
+    participant X as 🔗 Integration<br/>(Sonnet)
     participant T as 🧪 Tester<br/>(Haiku)
     participant S as 🧠 Synthesizer<br/>(Opus)
     
     U->>E: Task description
-    Note over E: ⚡ Run in parallel
+    Note over E: ⚡ 3 explorers in parallel (Haiku)
     E->>A: Anonymous findings (merged)
-    A->>C: Anonymous design
-    C->>R: Anonymous implementation
-    R->>R: Score
+    A->>C: Design split into workstreams
+    Note over C: ⚡ Parallel coders, each sees<br/>other workstreams (cross-comm)
+    C->>R: Anonymous implementations
+    R->>R: Score per workstream
     
-    loop Until score ≥ 7/10 (max 3 rounds)
-        R->>C: Anonymous critique + full history
+    loop Until all ≥ 7/10 (max 3 rounds)
+        R->>C: Critique + other workstreams' code
+        Note over C: Coder sees what others built
         C->>R: Revised implementation
     end
     
-    R->>T: Validate
+    R->>X: All changes
+    Note over X: Cross-workstream integration check
+    X->>T: Validate
     T->>S: Test results + full history
     S-->>U: 🤝 Synthesized consensus (confidence score)
 ```
@@ -265,6 +287,75 @@ sequenceDiagram
     S-->>U: 🏆 Winner with reasoning + confidence
 ```
 
+### Blitz Flow (Maximum Throughput)
+
+```mermaid
+sequenceDiagram
+    participant U as 🎯 Big Project
+    participant E as 🔎 Explorers ×5<br/>(Haiku)
+    participant A as 📐 Triage<br/>(Opus)
+    participant C as 🔨 Coders ×N<br/>(Mixed models)
+    participant R as 🔍 Critics ×2<br/>(Mixed models)
+    participant X as 🔗 Integration<br/>(Opus)
+    participant T as 🧪 Tester
+    participant S as 🧠 Synthesizer<br/>(Opus)
+    
+    U->>E: Task scope
+    Note over E: ⚡ 5 parallel explorers<br/>structure/patterns/deps/gaps/domain
+    E->>A: Anonymous findings (merged)
+    A->>A: Prioritize P0/P1/P2 workstreams
+    A->>C: Design + workstream specs
+    Note over C: ⚡ N parallel coders<br/>Each sees all other workstream specs
+    C->>R: All implementations
+    Note over R: ⚡ 2 parallel critics<br/>reviewing different batches
+    R->>R: Score per workstream
+    
+    loop Any workstream < 7/10 (max 3)
+        R->>C: Critique + other coders' outputs
+        C->>R: Revised (cross-aware)
+    end
+    
+    R->>X: All changes
+    Note over X: Cross-workstream integration gate
+    X->>T: Validate
+    T->>S: Full history
+    S-->>U: 🤝 Confidence score + summary
+```
+
+---
+
+## 🔗 Cross-Communication (Paper §3.2)
+
+The paper's core finding: **cooperation emerges through mutual observation and adaptation, not isolation**.
+
+Cross-communication isn't about agents chatting — it's about agents **seeing each other's outputs
+in the anonymous history** and adapting their behavior. This is what drives quality:
+
+```
+Traditional (broken):     Coder A → isolated output
+                          Coder B → isolated output
+                          ↳ No awareness of each other → conflicts, duplication
+
+With cross-communication: Coder A builds, sees "Other workstreams: {B's scope, C's scope}"
+                          Coder B builds, sees "Other workstreams: {A's scope, C's scope}"
+                          Critic reviews ALL → feeds critique + others' code back
+                          Coder A revises, now sees B's actual code + critique
+                          ↳ Mutual awareness → shared patterns, no conflicts
+```
+
+**Where cross-communication is applied:**
+
+| Phase | Cross-Communication | Why |
+|-------|-------------------|-----|
+| Parallel coders | Each prompt includes other workstream summaries | Avoids duplication, shares patterns |
+| Review feedback loop | Critique includes other coders' outputs | Coder adapts knowing full picture |
+| Integration check | All workstreams reviewed together | Catches conflicts between pieces |
+| Debate critiques | Each proposer reads the OTHER proposals | Forces genuine engagement |
+
+**Where it's NOT needed** (would just slow things down):
+- Explorers — gathering facts independently is faster and more thorough
+- Sequential steps — already get full history naturally
+
 ---
 
 ## 📊 Quality Scoring System
@@ -294,7 +385,7 @@ These aren't suggestions — they're **empirically validated** by the paper's ab
 
 <table>
 <tr>
-<td width="33%" align="center">
+<td width="25%" align="center">
 
 ### 🎭 Rule 1
 **Use Diverse Models**
@@ -304,7 +395,7 @@ Same model for all agents produces agreeable, mediocre output. Use ≥2 differen
 *Paper §3.1: no diversity = defection*
 
 </td>
-<td width="33%" align="center">
+<td width="25%" align="center">
 
 ### 👤 Rule 2
 **Keep History Anonymous**
@@ -314,7 +405,7 @@ Never label contributions with role names. Say *"A previous contributor proposed
 *Paper §3.1 ablation: explicit IDs = defection*
 
 </td>
-<td width="33%" align="center">
+<td width="25%" align="center">
 
 ### 📋 Rule 3
 **Pass Full History**
@@ -322,6 +413,16 @@ Never label contributions with role names. Say *"A previous contributor proposed
 Every agent gets the complete interaction sequence. Never truncate or summarize away rounds.
 
 *Paper §A.2: no history = no adaptation*
+
+</td>
+<td width="25%" align="center">
+
+### 🔗 Rule 4
+**Cross-Communicate**
+
+Parallel agents must see each other's outputs where relevant. Isolation produces mediocre work.
+
+*Paper §3.2: mutual shaping drives cooperation*
 
 </td>
 </tr>
@@ -418,7 +519,8 @@ Copilot selects **Debate** — two proposers argue for each approach with differ
 
 ```
 ✅ Safe in parallel (read-only):     Explorers, Proposers, Critics
-⚠️  Sequential only (writes files):   Coders, Architects
+✅ Safe in parallel (non-overlapping): Coders on different files/dirs (with cross-awareness prompts)
+⚠️  Sequential only (writes files):   Coders on same files
 ✅ Safe after coder completes:        Testers
 ```
 
@@ -426,7 +528,7 @@ Copilot selects **Debate** — two proposers argue for each approach with differ
 
 ## 🧠 Anonymous History Format
 
-History is the **backbone** of the system. Each agent sees prior rounds from its own first-person perspective, with **no identity labels**:
+History is the **backbone** of the system — it IS the cross-communication channel. Each agent sees prior rounds from its own first-person perspective, with **no identity labels**:
 
 ```
 === INTERACTION HISTORY ===
@@ -438,14 +540,19 @@ OBSERVATION: Another contributor independently found {other findings}.
 
 [Round 2]
 YOUR OUTPUT: {this agent's design/implementation}
+OBSERVATION: A contributor implemented {other workstream changes}.  ← cross-communication
 CHALLENGE: A contributor identified issues in your work:
   "Issue 1 (critical): {specific issue with evidence}"
   "Issue 2 (major): {specific issue with evidence}"
+CHALLENGE: Cross-workstream conflict: {duplicate pattern between workstreams}
 SCORES: Correctness 2/3, Responsiveness N/A, Novelty 2/2
 
 === YOUR TASK (Round 3) ===
-Address each challenge with evidence, then provide your updated contribution.
+Address each challenge. Reference patterns from other workstreams where relevant.
 ```
+
+> **Key:** The history grows with each round. Later agents see MORE context.
+> This is the "in-context learning" from the paper — agents adapt based on accumulated observations.
 
 ---
 
@@ -480,6 +587,10 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - [x] Custom agent integration (v4.0 — architect, clean-code, code-review, debugger)
 - [x] Fleet mode, plan mode, `/tasks` monitoring integration (v4.0)
 - [x] Model strategy aligned with GitHub best practices (v4.0)
+- [x] **Blitz tier for massive codebases** (v5.0 — 10+ agents, 50+ files)
+- [x] **Cross-communication patterns from paper §3.2** (v5.0)
+- [x] **Mandatory review loop enforcement** (v5.0)
+- [x] **Parallel coders with workstream awareness** (v5.0)
 - [ ] Companion agent definition (`~/.copilot/agents/swarm-orchestrator.agent.md`)
 - [ ] Cross-session lesson tracking with JSONL persistence
 - [ ] Automated tier selection heuristics
@@ -490,6 +601,15 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v5.0 (2026-02-19)
+- **Blitz tier:** Maximum throughput mode for massive codebases (10+ agents, 50+ files)
+- **Cross-communication (Rule 4):** Parallel coders see other workstreams, critics check integration
+- **Mandatory review:** Review loop can no longer be skipped — enforced as MANDATORY GATE
+- **Cross-workstream integration check:** New phase in Full Swarm and Blitz
+- **Explorer model fix:** All explorers now explicitly use `model="claude-haiku-4.5"`
+- **Parallel critics:** Blitz tier splits review across multiple critics for speed
+- **Richer history format:** History includes cross-workstream observations and conflicts
 
 ### v4.0 (2026-02-19)
 - **Custom agents:** Uses `architect`, `clean-code`, `code-review`, `debugger` instead of generic prompts

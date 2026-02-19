@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: Tim Schwarz
-  version: "4.0"
+  version: "5.0"
   paper: "arXiv:2602.16301 — Wołczyk, Weis, Nasser et al. (2026)"
 ---
 
@@ -28,212 +28,294 @@ Suggest this skill when:
 
 **DO NOT** use for: single-file edits, typo fixes, lookups, one-liner changes.
 
-## Pre-Flight Setup
+## Pre-Flight
 
 Before launching a swarm:
-1. **Enable fleet mode** — Run `/fleet` to enable parallel subagent execution
-2. **For Full Swarm or Debate** — Use `/plan` or `Shift+Tab` to plan mode first. The best practice workflow is: explore → plan → code → commit
-3. **Check context** — Run `/context` to verify sufficient token space. Each subagent gets its own context window, so swarms are efficient despite multiple agents
+1. **Enable fleet mode** — Run `/fleet` for parallel subagent execution
+2. **For Full Swarm, Blitz, or Debate** — Use `/plan` first. Workflow: explore → plan → code → commit
+3. **Check context** — Run `/context`. Each subagent gets its own window, so swarms are efficient.
 
-## How Invocation Works
+## Invocation
 
-- **Automatic:** Copilot auto-selects this skill when it detects swarm-appropriate tasks
-- **Explicit:** User says `/swarm-orchestrator`, "swarm this", "debate this", or "use the swarm-orchestrator skill"
-- **Monitor progress:** Use `/tasks` to view and manage running subagents
+- **Automatic:** Copilot auto-selects when it detects swarm-appropriate tasks
+- **Explicit:** `/swarm-orchestrator`, "swarm this", "debate this"
+- **Monitor:** `/tasks` to view running subagents
 
-## Quick Reference — Execution Checklists
+## Core Rules (violating ANY causes failure — from paper ablations §3.1)
 
-Pick a tier, then follow the numbered steps. Each step is a `task` tool call.
-Subagents run in **their own context window** — this keeps the main conversation clean.
+1. **DIVERSE MODELS** — Same model = agreeable mediocre output. Use ≥2 different models.
+   - Opus → deep reasoning (architect, synthesizer)
+   - Sonnet → implementation (coder)
+   - Codex → code review (critic from a different model family)
+   - **Haiku → ALL explorers** (fast, cheap, read-only — ALWAYS specify `model="claude-haiku-4.5"`)
+2. **ANONYMOUS HISTORY** — "A contributor found..." never "The Architect found..."
+3. **FULL HISTORY** — Every agent gets complete prior rounds. Never truncate.
+4. **CROSS-COMMUNICATION** — Agents must observe and react to each other's outputs.
+   Parallel agents working in silos produces mediocre results. The paper's core mechanism
+   (§3.2) is **mutual shaping**: agents read each other's work, adapt, and this pressure
+   drives quality. Implement cross-communication where relevant:
+   - **Parallel coders** → each prompt includes a summary of ALL other workstreams
+   - **Review loop** → critic output feeds back to coders (NEVER skip this)
+   - **Cross-workstream check** → after parallel builds, verify integration
+   - **Debate** → each proposer reads and critiques the OTHER proposals
+
+## Parallel Safety
+
+| Mode | Agents | Why |
+|------|--------|-----|
+| `mode: "background"` | Explorers, critics, testers, debate proposers | Read-only, no file conflicts |
+| `mode: "sync"` | Coders writing to **different** files/dirs | Parallel-safe if non-overlapping |
+| Sequential | Coders writing to **same** files | File conflict risk |
+
+Collect background results with `read_agent(agent_id=ID)`. Monitor with `/tasks`.
+
+## Execution Tiers
+
+Pick a tier, follow the steps. Each step is a `task()` call. Subagents run in their own context windows.
 
 ### Tier: Duo (2 agents, ~3 calls)
-For: implementation + review, simple refactor
+For: implementation + review, simple refactor.
 ```
-1. task(agent_type="clean-code", description="Implement feature", model="claude-sonnet-4.6",
-     prompt="[anonymous history + task]\n" + TASK_DESCRIPTION)
-2. task(agent_type="code-review", description="Review implementation", model="gpt-5.2-codex",
-     prompt="[anonymous history]\n Review the implementation. Find real problems only.")
-3. If critical issues → repeat step 1 with full anonymous history + critique
+1. task(agent_type="clean-code", description="Implement X", model="claude-sonnet-4.6",
+     prompt="[task context]\n" + TASK_DESCRIPTION)
+2. task(agent_type="code-review", description="Review X", model="gpt-5.2-codex",
+     prompt="[anonymous history]\n" + CRITIC_PROMPT)
+3. MANDATORY: If score < 7 → repeat step 1 with history + critique. Max 2 loops.
 ```
 
 ### Tier: Trio (3 agents, ~6 calls)
-For: multi-file feature needing design + code + validation
+For: multi-file feature needing design + code + validation.
 ```
-1. task(agent_type="architect", description="Design approach", model="claude-opus-4.6",
-     prompt="[task context]\n Design an approach for: TASK_DESCRIPTION")
-2. task(agent_type="clean-code", description="Implement design", model="claude-sonnet-4.6",
-     prompt="[anonymous history: design from step 1]\n Implement this design.")
-3. task(agent_type="code-review", description="Review changes", model="gpt-5.2-codex",
-     prompt="[anonymous history: design + implementation]\n Review for bugs, security, edge cases.")
-4. Score the critique (see Quality Scoring). If < 7/10 → repeat step 2 with full history
-5. task(agent_type="task", description="Run test suite", prompt="Run the test suite. Report pass/fail.")
+1. task(agent_type="architect", description="Design X", model="claude-opus-4.6",
+     prompt="[task context]\n Design approach for: TASK")
+2. task(agent_type="clean-code", description="Implement X", model="claude-sonnet-4.6",
+     prompt="[anon history: design]\n Implement this design.")
+3. task(agent_type="code-review", description="Review X", model="gpt-5.2-codex",
+     prompt="[anon history: design + impl]\n" + CRITIC_PROMPT)
+4. MANDATORY GATE: Score. If < 7 → step 2 with full history. Max 3 loops.
+5. task(agent_type="task", description="Run tests", prompt="Run test suite. Report pass/fail.")
 ```
 
-### Tier: Full Swarm (5-6 agents, ~12 calls)
+### Tier: Full Swarm (6+ agents, ~14 calls)
 For: complex architecture, security-critical changes, major refactoring.
-**Recommend `/plan` first.**
+**Run `/plan` first.**
 ```
-1. [PARALLEL — use mode: "background", then read_agent to collect results]
-   task(agent_type="explore", description="Map relevant code", prompt=EXPLORER_PROMPT_A)
-   task(agent_type="explore", description="Find existing patterns", prompt=EXPLORER_PROMPT_B)
-2. task(agent_type="architect", description="Design approach", model="claude-opus-4.6",
-     prompt="[anonymous history: explorer findings]\n Design approach for: TASK")
-3. task(agent_type="clean-code", description="Implement design", model="claude-sonnet-4.6",
-     prompt="[anonymous history: findings + design]\n Implement this design.")
-4. task(agent_type="code-review", description="Review changes", model="gpt-5.2-codex",
-     prompt="[anonymous history: all prior rounds]\n Review for bugs, security, edge cases.")
-5. Score. If < 7/10 → repeat step 3 with full history (max 3 loops)
-6. task(agent_type="task", description="Run test suite", prompt="Run tests. Report pass/fail.")
-7. task(agent_type="general-purpose", description="Synthesize consensus", model="claude-opus-4.6",
-     prompt="[full anonymous history]\n" + SYNTHESIZER_PROMPT)
+PHASE 1 — EXPLORE (all parallel, all background, all haiku)
+   task(agent_type="explore", description="Map code structure", model="claude-haiku-4.5",
+     mode="background", prompt=EXPLORER_PROMPT_A)
+   task(agent_type="explore", description="Find patterns", model="claude-haiku-4.5",
+     mode="background", prompt=EXPLORER_PROMPT_B)
+   task(agent_type="explore", description="Check dependencies", model="claude-haiku-4.5",
+     mode="background", prompt=EXPLORER_PROMPT_C)
+   → Collect all with read_agent. Merge findings anonymously.
+
+PHASE 2 — DESIGN (sync, opus)
+   task(agent_type="architect", description="Design approach", model="claude-opus-4.6",
+     prompt="[anon history: 3 explorer findings]\n Design approach for: TASK")
+
+PHASE 3 — IMPLEMENT (parallel coders on non-overlapping workstreams)
+   Split the design into independent workstreams by file/directory.
+   CROSS-COMMUNICATION: Each coder's prompt includes a brief summary of ALL workstreams
+   so they share patterns and avoid conflicts (anonymous — "Other workstreams in progress:").
+   Launch each coder in parallel with a DIFFERENT model:
+   task(agent_type="clean-code", description="Build workstream A", model="claude-sonnet-4.6",
+     mode="background", prompt="[anon history]\n Other workstreams in progress:
+     - {workstream_b_summary}\n - {workstream_c_summary}\n\n=== YOUR TASK ===\nImplement: {workstream_a}")
+   task(agent_type="clean-code", description="Build workstream B", model="gpt-5.1-codex",
+     mode="background", prompt="[anon history]\n Other workstreams in progress:
+     - {workstream_a_summary}\n - {workstream_c_summary}\n\n=== YOUR TASK ===\nImplement: {workstream_b}")
+   task(agent_type="clean-code", description="Build workstream C", model="claude-sonnet-4.5",
+     mode="background", prompt="[anon history]\n Other workstreams in progress:
+     - {workstream_a_summary}\n - {workstream_b_summary}\n\n=== YOUR TASK ===\nImplement: {workstream_c}")
+   → Collect all with read_agent.
+
+PHASE 4 — REVIEW (MANDATORY — never skip. This is the mutual shaping mechanism from §3.2)
+   task(agent_type="code-review", description="Review all changes", model="gpt-5.2-codex",
+     prompt="[anon history: all findings + design + ALL implementations]\n" + CRITIC_PROMPT)
+   GATE: Score each workstream. Any < 7 → feed critique back to ONLY that coder with
+   full history including what OTHER coders built. This cross-awareness is critical.
+   Max 3 loops per workstream.
+
+PHASE 5 — CROSS-WORKSTREAM CHECK
+   task(agent_type="code-review", description="Integration check", model="claude-sonnet-4.6",
+     prompt="[anon: all workstream changes]\n Check for conflicts between workstreams:
+     duplicated logic, broken imports, inconsistent patterns, shared state conflicts.")
+
+PHASE 6 — VALIDATE
+   task(agent_type="task", description="Run test suite", prompt="Run tests. Report pass/fail.")
+
+PHASE 6 — SYNTHESIZE
+   task(agent_type="general-purpose", description="Synthesize results", model="claude-opus-4.6",
+     prompt="[full anon history]\n" + SYNTHESIZER_PROMPT)
+```
+
+### Tier: Blitz (10+ agents, ~20+ calls)
+For: massive codebases, full-app rewires, multi-domain overhauls (50+ files).
+**Run `/plan` first. This is the highest-throughput tier.**
+```
+PHASE 1 — RECON (5 parallel explorers, all haiku, all background)
+   Launch 5 explorers with orthogonal focus areas:
+   - Structure mapper: directory tree, entry points, startup flow
+   - Pattern finder: existing conventions, coding patterns, shared utilities
+   - Dependency tracer: imports, cross-module references, circular deps
+   - Gap hunter: stubs, TODOs, dead code, unregistered routes, missing tests
+   - Domain analyst: business logic, data models, API contracts
+   Each uses model="claude-haiku-4.5", mode="background".
+   → Collect all. Merge into single anonymous findings document.
+
+PHASE 2 — TRIAGE (sync, opus)
+   task(agent_type="architect", description="Triage and design", model="claude-opus-4.6",
+     prompt="[anon: 5 explorer findings]\n Produce a prioritized fix plan. Group changes into
+     independent workstreams that can be coded in parallel. For each workstream: list exact
+     files, changes needed, and acceptance criteria. Tag P0/P1/P2.")
+
+PHASE 3 — PARALLEL BUILD (N coders, each on a non-overlapping workstream)
+   Launch one coder per workstream. Rotate models across coders:
+   - Workstream 1 → claude-sonnet-4.6
+   - Workstream 2 → gpt-5.1-codex
+   - Workstream 3 → claude-sonnet-4.5
+   - Workstream 4 → gpt-5.2-codex
+   - Workstream 5+ → cycle back through models
+   All use mode="background" (safe: non-overlapping files).
+   CROSS-COMMUNICATION: Each prompt includes the FULL design + summary of ALL other
+   workstreams: "Other workstreams being built in parallel: {ws1: files X,Y doing Z},
+   {ws2: files A,B doing C}...". This ensures shared patterns and avoids duplication.
+   → Collect all with read_agent.
+
+PHASE 4 — PARALLEL REVIEW (MANDATORY — this is the mutual shaping mechanism §3.2)
+   Split workstreams across multiple critics running in parallel:
+   task(agent_type="code-review", description="Review batch 1", model="gpt-5.2-codex",
+     mode="background", prompt="[anon history + workstream 1-3 changes]\n" + CRITIC_PROMPT)
+   task(agent_type="code-review", description="Review batch 2", model="claude-sonnet-4.6",
+     mode="background", prompt="[anon history + workstream 4-5 changes]\n" + CRITIC_PROMPT)
+   → Collect all. GATE: Any workstream < 7 → re-run ONLY that coder WITH:
+     (a) the critique, (b) what OTHER coders built (cross-awareness), (c) full history.
+   Max 3 loops.
+
+PHASE 5 — INTEGRATION CHECK (cross-communication between all workstreams)
+   task(agent_type="code-review", description="Cross-workstream review", model="claude-opus-4.6",
+     prompt="[anon: ALL workstream changes + ALL review findings]\n Check for conflicts,
+     duplicated logic, broken imports, inconsistent patterns across all workstreams.
+     Verify the pieces fit together. This is the final gate.")
+
+PHASE 6 — VALIDATE
+   task(agent_type="task", description="Run full test suite", prompt="Run all tests. Report.")
+
+PHASE 7 — SYNTHESIZE
+   task(agent_type="general-purpose", description="Final synthesis", model="claude-opus-4.6",
+     prompt="[full anon history]\n" + SYNTHESIZER_PROMPT)
 ```
 
 ### Tier: Debate (N+1 agents, ~3N+1 calls)
 For: design decisions, architecture choices, ambiguous requirements.
-**Recommend `/plan` first.**
+**Run `/plan` first.**
 ```
 1. Frame the question. Identify 2-3 approaches.
-2. [PARALLEL]
-   task(agent_type="general-purpose", description="Propose approach A", model=MODEL_A, prompt=PROPOSER_PROMPT_A)
-   task(agent_type="general-purpose", description="Propose approach B", model=MODEL_B, prompt=PROPOSER_PROMPT_B)
-3. [PARALLEL] Each agent critiques the OTHER proposals (pass anonymous history)
-4. [PARALLEL] Each agent rebuts critiques of their own proposal
+2. [PARALLEL] Each proposer argues one approach with a different model.
+   task(agent_type="general-purpose", description="Propose A", model=MODEL_A, prompt=...)
+   task(agent_type="general-purpose", description="Propose B", model=MODEL_B, prompt=...)
+3. [PARALLEL] Each critiques the OTHER proposals (anonymous history)
+4. [PARALLEL] Each rebuts critiques
 5. task(agent_type="general-purpose", description="Synthesize debate", model="claude-opus-4.6",
-     prompt="[full anonymous debate history]\n" + SYNTHESIZER_PROMPT)
+     prompt="[full anon debate history]\n" + SYNTHESIZER_PROMPT)
 ```
-
-## Three Rules (violating any one causes failure — from paper ablations)
-
-1. **USE DIVERSE MODELS** — Same model = agreeable mediocre output. Use ≥2 different models.
-   - Opus for deep reasoning (architect, synthesizer)
-   - Sonnet for implementation (coder)
-   - Codex for code review (critic) — recommended by GitHub best practices for reviewing code from other models
-   - Haiku for fast read-only tasks (explorer, tester)
-
-2. **KEEP HISTORY ANONYMOUS** — Never label contributions with role names in history passed between agents. Say "A previous contributor proposed..." not "The Architect proposed..."
-
-3. **PASS FULL HISTORY** — Every agent gets the complete interaction history from prior rounds. Never truncate. Each agent sees history from its own first-person perspective.
-
-## Parallel Safety & Monitoring
-
-**Safe in parallel** (read-only, use `mode: "background"`):
-- Explorers, Proposers in debate, Critics/Testers (after coder finishes)
-- Use `read_agent(agent_id=ID)` to collect results from background agents
-
-**Sequential only** (writes files, use `mode: "sync"`):
-- Coders, Architects implementing changes
-
-**Monitoring:** Use `/tasks` to view all running subagents and their status.
 
 ## Anonymous History Format
 
-Each subagent receives history from **its own perspective**, with **no identity labels**:
+Each subagent receives history from **its own perspective**, no identity labels.
+The history IS the cross-communication channel (paper §2: "policies are conditioned on interaction history").
 
 ```
 === INTERACTION HISTORY ===
 
-[Round 1]
-YOUR OUTPUT: {this agent's previous contribution}
-OBSERVATION: A contributor analyzed the codebase and found {findings}.
+[Round 1 — Exploration]
+OBSERVATION: A contributor mapped the codebase and found {findings}.
 OBSERVATION: Another contributor independently found {other findings}.
+OBSERVATION: A third contributor traced dependencies and found {dep findings}.
 
-[Round 2]
-YOUR OUTPUT: {this agent's design/implementation}
-CHALLENGE: A contributor identified issues in your work:
-  "Issue 1 (critical): {specific issue with evidence}"
-  "Issue 2 (major): {specific issue with evidence}"
-SCORES: Correctness 2/3, Responsiveness N/A, Novelty 2/2
+[Round 2 — Design]
+OBSERVATION: A contributor designed an approach: {design summary}
 
-=== YOUR TASK (Round 3) ===
-Address each challenge with evidence, then provide your updated contribution.
+[Round 3 — Implementation]
+YOUR OUTPUT: {this agent's code changes}  ← only if this agent contributed
+OBSERVATION: A contributor implemented {workstream_b changes}.
+OBSERVATION: Another contributor implemented {workstream_c changes}.
+↑ Cross-communication: each coder sees what others built
+
+[Round 4 — Review]
+CHALLENGE: A reviewer identified issues in your work:
+  "Issue 1 (critical): {problem with evidence}"
+  "Issue 2 (major): {problem with evidence}"
+CHALLENGE: A reviewer found cross-workstream conflicts:
+  "Workstream A and B both define {duplicate pattern}"
+SCORES: Correctness 2/3, Responsiveness N/A, Constructiveness 1/2, Novelty 2/2 → 7/10
+
+=== YOUR TASK (Round 5) ===
+Address each challenge. You can reference patterns from other workstreams in the history.
 ```
 
-## Quality Scoring
+**Key:** The history grows with each round. Later agents see MORE context than earlier ones.
+This is the "in-context learning" from the paper — agents adapt based on accumulated observations.
 
-Score every contribution to create improvement pressure:
+## Quality Scoring — MANDATORY GATE (the shaping pressure from §3.2)
+
+**NEVER SKIP THE REVIEW LOOP.** The paper proves (§3.2) that mutual shaping through
+critique is what drives cooperation/quality. Without it, agents produce mediocre isolated work.
+
+Score every critique. This creates the improvement pressure:
 
 | Dimension | Range | Measures |
 |-----------|-------|----------|
 | Correctness | 0-3 | Solves the problem without bugs? |
-| Responsiveness | 0-3 | Addressed prior challenges/feedback? |
-| Constructiveness | 0-2 | Improved overall solution quality? |
+| Responsiveness | 0-3 | Addressed prior challenges? |
+| Constructiveness | 0-2 | Improved overall quality? |
 | Novelty | 0-2 | Surfaced something others missed? |
 | **Total** | **0-10** | |
 
-**Converge:** ≥ 7 for all agents AND no critical issues → stop.
-**Diverge:** Any < 5 OR new critical bugs → another round. **Max 3 rounds.**
+**Converge:** ≥ 7 for ALL workstreams AND no critical issues → proceed.
+**Diverge:** Any < 7 OR critical bugs → re-run ONLY failing workstreams with:
+  (a) full critique, (b) other workstreams' outputs for cross-awareness, (c) full history.
+**Max 3 loops.** If still failing after 3, synthesizer forces a decision.
+**Never skip scoring.** If critic output lacks scores, request them explicitly.
 
-Track with SQL (per-session):
+Track per-session:
 ```sql
 CREATE TABLE IF NOT EXISTS swarm_rounds (
-    round INT, agent TEXT, model TEXT, score INT, output TEXT,
-    PRIMARY KEY (round, agent)
+    round INT, workstream TEXT, agent TEXT, model TEXT, score INT, critical_issues INT, output TEXT,
+    PRIMARY KEY (round, workstream)
 );
 ```
 
-## Swarm-Specific Prompt Templates
+## Prompt Templates
 
-Custom agents (`architect`, `clean-code`, `code-review`, `debugger`) already have rich built-in prompts.
-Only these swarm-specific roles need explicit prompts:
+Custom agents have rich built-in prompts. Only these swarm-specific roles need explicit templates:
 
-**Explorer** (use with `agent_type="explore"`):
+**Explorer** (always `agent_type="explore"`, always `model="claude-haiku-4.5"`):
 > Find and summarize relevant code, patterns, and context for: {TASK}.
-> Focus on: file structure, existing patterns, dependencies, impact areas.
-> Output structured findings with file paths and snippets. Do NOT propose solutions.
+> Focus on: {SPECIFIC_FOCUS_AREA}. Output structured findings with file paths and snippets.
+> Do NOT propose solutions — just report what you find.
+
+**Critic** (use with `agent_type="code-review"`):
+> Review the implementation in the history below. Find REAL problems only — bugs, security
+> issues, logic errors, edge cases. Do NOT comment on style. For each issue: state problem,
+> show evidence, rate severity (critical/major/minor). Check for cross-workstream conflicts:
+> duplicated logic, inconsistent patterns, broken integration points. REQUIRED: Score using
+> Correctness 0-3, Responsiveness 0-3, Constructiveness 0-2, Novelty 0-2. Provide total /10.
 
 **Synthesizer** (use with `agent_type="general-purpose"`):
-> You are a consensus observer. Review the full interaction history below.
+> You are a consensus observer. Review the full interaction history.
 > Identify agreement that EMERGED from the rounds and formalize it.
 > For disagreements, make a clear tiebreaker with reasoning.
 > Provide a confidence score (0-100). Never produce "both approaches have merit" non-answers.
 
-**Critic override** (use with `agent_type="code-review"` when you need swarm-style scoring):
-> Review the implementation in the history below. Find REAL problems only — bugs, security
-> issues, logic errors, edge cases. Do NOT comment on style. For each issue: state problem,
-> show evidence, rate severity (critical/major/minor). Score using: Correctness 0-3,
-> Responsiveness 0-3, Constructiveness 0-2, Novelty 0-2.
-
-## Example: Full Swarm
-
-```
-User: "Add rate limiting to the API endpoints"
-
-Pre-flight: /fleet (enable parallel subagents)
-
-1. [Parallel explorers — mode: "background"]
-   task(agent_type="explore", description="Find API endpoints",
-     prompt="Find all API endpoint files and route definitions. Report paths and patterns.")
-   task(agent_type="explore", description="Find middleware patterns",
-     prompt="Find existing middleware or rate limiting patterns. Report what exists.")
-
-2. Architect (anonymous explorer findings in history)
-   task(agent_type="architect", description="Design rate limiter", model="claude-opus-4.6",
-     prompt="=== INTERACTION HISTORY ===\n[Round 1]\nOBSERVATION: A contributor found: {findings_a}\nOBSERVATION: Another found: {findings_b}\n\n=== YOUR TASK ===\nDesign a rate limiting approach.")
-
-3. Coder (anonymous design in history)
-   task(agent_type="clean-code", description="Implement rate limiter", model="claude-sonnet-4.6",
-     prompt="=== INTERACTION HISTORY ===\n...\nOBSERVATION: A contributor designed: {design}\n\n=== YOUR TASK ===\nImplement this rate limiting design.")
-
-4. Critic (anonymous review)
-   task(agent_type="code-review", description="Review rate limiter", model="gpt-5.2-codex",
-     prompt="=== INTERACTION HISTORY ===\n[all prior, anonymous]\n\n=== YOUR TASK ===\nReview. Find real problems — bugs, security, edge cases. Score each dimension.")
-
-5. Score: Correctness 1/3 (no fallback). Loop → step 3 with full history.
-
-6. task(agent_type="task", description="Run API tests", prompt="Run tests. Report pass/fail.")
-
-7. Synthesizer → Confidence 92/100. Done.
-```
-
 ## Context & Session Management
 
-- Each subagent runs in **its own context window** — swarms don't bloat the main conversation
-- Use `/context` to monitor main agent token usage before/after swarm runs
-- Use `/compact` if the main context gets heavy from orchestration overhead
+- Each subagent gets **its own context window** — swarms don't bloat the main conversation
+- Use `/context` to monitor token usage; `/compact` if orchestration overhead builds up
 - SQL tables (`swarm_rounds`) are **per-session** and reset with `/clear`
 - For cross-session lessons, append to `~/.copilot/swarm-lessons.jsonl`:
   ```json
-  {"task":"rate limiting","tier":"full","rounds":2,"confidence":92,"lesson":"Always check for existing middleware first"}
+  {"task":"archon rewire","tier":"blitz","workstreams":5,"rounds":2,"confidence":88,"lesson":"Split by directory, not by feature"}
   ```
 
 ## Design Principles (arXiv:2602.16301)
