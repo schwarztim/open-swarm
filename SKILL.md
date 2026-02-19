@@ -8,7 +8,7 @@ description: >-
 license: MIT
 metadata:
   author: Tim Schwarz
-  version: "5.0"
+  version: "5.1"
   paper: "arXiv:2602.16301 — Wołczyk, Weis, Nasser et al. (2026)"
 ---
 
@@ -69,6 +69,32 @@ Before launching a swarm:
 
 Collect background results with `read_agent(agent_id=ID)`. Monitor with `/tasks`.
 
+## Merge Protocol — After Every Parallel Phase
+
+**Problem:** Raw `read_agent` outputs concatenated together produce noisy, redundant history.
+The test session proved this — 3 explorer outputs were dumped verbatim into the next prompt,
+wasting tokens and losing signal. Inspired by Agent Framework's `ConcurrentBuilder` aggregation.
+
+**Rule:** After collecting parallel outputs, run a lightweight **merge agent** that produces
+a single structured anonymous document. This IS the anonymous history for the next phase.
+
+```
+MERGE_STEP (after any parallel fan-out):
+  task(agent_type="explore", description="Merge N findings", model="claude-haiku-4.5",
+    prompt="You are a synthesis editor. Below are N independent contributions.
+    Produce ONE structured summary that:
+    1. Deduplicates overlapping findings
+    2. Preserves ALL unique insights (don't drop anything novel)
+    3. Flags contradictions between contributors
+    4. Uses anonymous language ('A contributor found...' not names/labels)
+    5. Organizes by topic, not by contributor
+    Output format: bullet sections grouped by theme.\n\n" + collected_outputs)
+```
+
+- **When:** After ≥2 parallel agents complete (explorers, coders, critics)
+- **Cost:** ~2 seconds with haiku. Pays for itself by compressing 3-5 raw outputs into 1 clean doc
+- **Skip when:** Only 1 agent output to merge (Duo tier) — just anonymize inline
+
 ## Execution Tiers
 
 Pick a tier, follow the steps. Each step is a `task()` call. Subagents run in their own context windows.
@@ -107,11 +133,11 @@ PHASE 1 — EXPLORE (all parallel, all background, all haiku)
      mode="background", prompt=EXPLORER_PROMPT_B)
    task(agent_type="explore", description="Check dependencies", model="claude-haiku-4.5",
      mode="background", prompt=EXPLORER_PROMPT_C)
-   → Collect all with read_agent. Merge findings anonymously.
+   → Collect all with read_agent. **Run MERGE_STEP** to produce anonymous findings doc.
 
 PHASE 2 — DESIGN (sync, opus)
    task(agent_type="architect", description="Design approach", model="claude-opus-4.6",
-     prompt="[anon history: 3 explorer findings]\n Design approach for: TASK")
+     prompt="[merged findings doc from MERGE_STEP]\n Design approach for: TASK")
 
 PHASE 3 — IMPLEMENT (parallel coders on non-overlapping workstreams)
    Split the design into independent workstreams by file/directory.
@@ -127,7 +153,7 @@ PHASE 3 — IMPLEMENT (parallel coders on non-overlapping workstreams)
    task(agent_type="clean-code", description="Build workstream C", model="claude-sonnet-4.5",
      mode="background", prompt="[anon history]\n Other workstreams in progress:
      - {workstream_a_summary}\n - {workstream_b_summary}\n\n=== YOUR TASK ===\nImplement: {workstream_c}")
-   → Collect all with read_agent.
+   → Collect all with read_agent. **Run MERGE_STEP** to produce cross-workstream summary.
 
 PHASE 4 — REVIEW (MANDATORY — never skip. This is the mutual shaping mechanism from §3.2)
    task(agent_type="code-review", description="Review all changes", model="gpt-5.2-codex",
@@ -161,7 +187,7 @@ PHASE 1 — RECON (5 parallel explorers, all haiku, all background)
    - Gap hunter: stubs, TODOs, dead code, unregistered routes, missing tests
    - Domain analyst: business logic, data models, API contracts
    Each uses model="claude-haiku-4.5", mode="background".
-   → Collect all. Merge into single anonymous findings document.
+   → Collect all with read_agent. **Run MERGE_STEP** to produce anonymous recon doc.
 
 PHASE 2 — TRIAGE (sync, opus)
    task(agent_type="architect", description="Triage and design", model="claude-opus-4.6",
@@ -180,7 +206,7 @@ PHASE 3 — PARALLEL BUILD (N coders, each on a non-overlapping workstream)
    CROSS-COMMUNICATION: Each prompt includes the FULL design + summary of ALL other
    workstreams: "Other workstreams being built in parallel: {ws1: files X,Y doing Z},
    {ws2: files A,B doing C}...". This ensures shared patterns and avoids duplication.
-   → Collect all with read_agent.
+   → Collect all with read_agent. **Run MERGE_STEP** to produce implementation summary.
 
 PHASE 4 — PARALLEL REVIEW (MANDATORY — this is the mutual shaping mechanism §3.2)
    Split workstreams across multiple critics running in parallel:
@@ -188,7 +214,7 @@ PHASE 4 — PARALLEL REVIEW (MANDATORY — this is the mutual shaping mechanism 
      mode="background", prompt="[anon history + workstream 1-3 changes]\n" + CRITIC_PROMPT)
    task(agent_type="code-review", description="Review batch 2", model="claude-sonnet-4.6",
      mode="background", prompt="[anon history + workstream 4-5 changes]\n" + CRITIC_PROMPT)
-   → Collect all. GATE: Any workstream < 7 → re-run ONLY that coder WITH:
+   → Collect all. **Run MERGE_STEP** on review outputs. GATE: Any workstream < 7 → re-run ONLY that coder WITH:
      (a) the critique, (b) what OTHER coders built (cross-awareness), (c) full history.
    Max 3 loops.
 
