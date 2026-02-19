@@ -1,13 +1,14 @@
 <div align="center">
 
-# 🐝 Swarm Orchestrator
+# 🐝 Open Swarm
 
-### A Copilot CLI Skill for Emergent Multi-Agent Cooperation
+### MCP Server + Copilot CLI Skill for Emergent Multi-Agent Cooperation
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-Skill-8957e5?logo=github)](https://docs.github.com/copilot)
+[![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
-[![Version](https://img.shields.io/badge/version-5.1-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-6.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -454,19 +455,44 @@ Aligned with [GitHub's best practices](https://docs.github.com/copilot/how-tos/c
 
 ## 🚀 Installation
 
+### Option A: MCP Server (Recommended — enforced orchestration)
+
 ```bash
-# One-liner install
+# Build and run with ToolHive
+cd mcp-server
+docker build -t localhost:5555/open-swarm-mcp:latest .
+docker push localhost:5555/open-swarm-mcp:latest
+thv run localhost:5555/open-swarm-mcp:latest --name open-swarm --transport stdio
+
+# Verify
+thv list | grep open-swarm
+```
+
+Then install the thin SKILL.md wrapper:
+```bash
 mkdir -p ~/.copilot/skills/swarm-orchestrator && \
   curl -sL https://raw.githubusercontent.com/schwarztim/open-swarm/main/SKILL.md \
   -o ~/.copilot/skills/swarm-orchestrator/SKILL.md
 ```
 
-Or clone the repo:
+### Option B: Skill Only (no server needed)
 
 ```bash
-git clone https://github.com/schwarztim/open-swarm.git
-cp open-swarm/SKILL.md ~/.copilot/skills/swarm-orchestrator/SKILL.md
+mkdir -p ~/.copilot/skills/swarm-orchestrator && \
+  curl -sL https://raw.githubusercontent.com/schwarztim/open-swarm/main/SKILL.md \
+  -o ~/.copilot/skills/swarm-orchestrator/SKILL.md
 ```
+
+### MCP Server Tools
+
+| Tool | Purpose |
+|------|---------|
+| `swarm_init` | Initialize session, auto-select tier |
+| `swarm_next` | Get exact task() params for current phase |
+| `swarm_submit` | Submit completed output, advance state |
+| `swarm_merge` | Merge parallel outputs anonymously |
+| `swarm_status` | Full session state + next action |
+| `swarm_gate` | Quality gate: proceed or retry |
 
 Restart Copilot CLI, or run `/skills reload` if already in a session. The skill appears in `/skills`.
 
@@ -616,6 +642,20 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v6.0 (2026-02-19)
+- **MCP Server:** Converted from prose-based skill to enforced MCP tool calls
+- Server-side model diversity, phase ordering, merge enforcement, quality gates
+- 6 tools: `swarm_init`, `swarm_next`, `swarm_submit`, `swarm_merge`, `swarm_status`, `swarm_gate`
+- Anonymous history built server-side — agent never sees identity labels
+- SKILL.md reduced from 399→72 lines (thin wrapper pointing to MCP tools)
+- Deployed via ToolHive (`thv run`)
+
+### v5.2 (2026-02-19)
+- Programmatic state machine with SQL enforcement
+- Auto pre-flight (fleet/plan mode prompts)
+- STOP-AND-CHECK gates, anti-pattern callouts
+- Phase continuation enforcement
 
 ### v5.1 (2026-02-19)
 - **Merge Protocol:** Formal synthesis step after every parallel fan-out phase (inspired by Agent Framework's ConcurrentBuilder)
