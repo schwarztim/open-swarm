@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-Skill-8957e5?logo=github)](https://docs.github.com/copilot)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
-[![Version](https://img.shields.io/badge/version-3.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-4.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -58,13 +58,46 @@ graph LR
 
 ---
 
+## 🛫 Pre-Flight Setup
+
+Before launching a swarm, these Copilot CLI commands optimize the experience:
+
+```
+/fleet                  # Enable parallel subagent execution (essential for swarms)
+/plan                   # Use plan mode first for Full Swarm or Debate tiers
+/context                # Check available token space before starting
+/tasks                  # Monitor running subagents during swarm execution
+```
+
+> **💡 Key insight:** Each subagent runs in **its own context window**. This means swarms don't bloat your main conversation — it's actually *more* token-efficient than doing everything in one thread.
+
+---
+
+## 🤖 Leverages Existing Custom Agents
+
+v4.0 uses Copilot CLI's built-in custom agents instead of reinventing prompts:
+
+| Swarm Role | Custom Agent | Why |
+|-----------|-------------|-----|
+| **Architect** | `agent_type="architect"` | Already has rich design principles, ADR templates, pattern guidance |
+| **Coder** | `agent_type="clean-code"` | Clean Code principles, SOLID, naming conventions built-in |
+| **Critic** | `agent_type="code-review"` | High signal-to-noise ratio — only surfaces real issues |
+| **Debugger** | `agent_type="debugger"` | Scientific debugging method, hypothesis-driven investigation |
+| **Explorer** | `agent_type="explore"` | Fast codebase analysis, read-only, parallel-safe |
+| **Tester** | `agent_type="task"` | Command execution with brief success/full failure output |
+
+Only **swarm-specific roles** (Synthesizer, Critic override with scoring) need explicit prompts.
+
+---
+
 ## 🏗️ Architecture
 
 ### Orchestration Flow
 
 ```mermaid
 flowchart TD
-    START([🎯 User Task]) --> TIER{Complexity?}
+    START([🎯 User Task]) --> PREFLIGHT["/fleet + /plan"]
+    PREFLIGHT --> TIER{Complexity?}
     
     TIER -->|"Simple<br/>1-2 files"| DUO["<b>Duo</b><br/>2 agents"]
     TIER -->|"Medium<br/>multi-file"| TRIO["<b>Trio</b><br/>3 agents"]
@@ -76,7 +109,7 @@ flowchart TD
     FULL --> EXECUTE
     DEBATE --> EXECUTE
     
-    EXECUTE["Execute Rounds"] --> SCORE{"Score ≥ 7/10?"}
+    EXECUTE["Execute Rounds<br/><i>/tasks to monitor</i>"] --> SCORE{"Score ≥ 7/10?"}
     SCORE -->|"✅ Yes"| CONVERGE([🤝 Converged Solution])
     SCORE -->|"❌ No"| ROUND{"Round < 3?"}
     ROUND -->|"Yes"| EXECUTE
@@ -84,6 +117,7 @@ flowchart TD
     SYNTH --> CONVERGE
 
     style START fill:#1a1a2e,stroke:#e94560,stroke-width:2px,color:#fff
+    style PREFLIGHT fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
     style CONVERGE fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#fff
     style SCORE fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
     style DUO fill:#0f3460,color:#fff
@@ -136,8 +170,8 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant U as 🎯 User Task
-    participant C as 🔨 Coder<br/>(Sonnet)
-    participant R as 🔍 Critic<br/>(GPT)
+    participant C as 🔨 clean-code<br/>(Sonnet)
+    participant R as 🔍 code-review<br/>(Codex)
     
     U->>C: Task + context
     C->>R: Anonymous implementation
@@ -157,9 +191,9 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant U as 🎯 User Task
-    participant A as 📐 Architect<br/>(Opus)
-    participant C as 🔨 Coder<br/>(Sonnet)
-    participant R as 🔍 Critic<br/>(GPT)
+    participant A as 📐 architect<br/>(Opus)
+    participant C as 🔨 clean-code<br/>(Sonnet)
+    participant R as 🔍 code-review<br/>(Codex)
     participant T as 🧪 Tester<br/>(Haiku)
     
     U->>A: Task + context
@@ -182,9 +216,9 @@ sequenceDiagram
 sequenceDiagram
     participant U as 🎯 User Task
     participant E as 🔎 Explorers ×2<br/>(Haiku)
-    participant A as 📐 Architect<br/>(Opus)
-    participant C as 🔨 Coder<br/>(Sonnet)
-    participant R as 🔍 Critic<br/>(GPT)
+    participant A as 📐 architect<br/>(Opus)
+    participant C as 🔨 clean-code<br/>(Sonnet)
+    participant R as 🔍 code-review<br/>(Codex)
     participant T as 🧪 Tester<br/>(Haiku)
     participant S as 🧠 Synthesizer<br/>(Opus)
     
@@ -295,6 +329,21 @@ Every agent gets the complete interaction sequence. Never truncate or summarize 
 
 ---
 
+## 🧩 Model Strategy
+
+Aligned with [GitHub's best practices](https://docs.github.com/copilot/how-tos/copilot-cli/cli-best-practices):
+
+| Role | Model | Rationale |
+|------|-------|-----------|
+| **Architect / Synthesizer** | Claude Opus | Complex reasoning, system design, nuanced decisions |
+| **Coder** | Claude Sonnet | Day-to-day implementation, fast and cost-effective |
+| **Critic** | GPT Codex | Excellent for reviewing code produced by other models |
+| **Explorer / Tester** | Claude Haiku | Fast read-only tasks, minimal token cost |
+
+> The key is **model diversity** — using the same model for all roles produces agreeable but mediocre output. Cross-model review catches issues same-model review misses.
+
+---
+
 ## 🚀 Installation
 
 ```bash
@@ -311,13 +360,28 @@ git clone https://github.com/schwarztim/swarm-orchestrator-skill.git
 cp swarm-orchestrator-skill/SKILL.md ~/.copilot/skills/swarm-orchestrator/SKILL.md
 ```
 
-Restart Copilot CLI. The skill appears in `/skills`.
+Restart Copilot CLI, or run `/skills reload` if already in a session. The skill appears in `/skills`.
 
 ### Verify Installation
 
 ```
-> /skills
+> /skills list
 # Should list "swarm-orchestrator" with description
+
+> /skills info
+# Shows skill location and details
+```
+
+### Invocation
+
+```
+# Explicit invocation
+/swarm-orchestrator
+
+# Natural language (Copilot auto-detects)
+"swarm this"
+"debate the best approach"
+"use the swarm-orchestrator skill to..."
 ```
 
 ---
@@ -410,11 +474,43 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 
 ## 🗺️ Roadmap
 
+- [x] Core skill with 4 tiered modes (Duo, Trio, Full Swarm, Debate)
+- [x] Paper-aligned three rules with quality scoring
+- [x] CLI operability rewrite (v3.0 — 68% size reduction)
+- [x] Custom agent integration (v4.0 — architect, clean-code, code-review, debugger)
+- [x] Fleet mode, plan mode, `/tasks` monitoring integration (v4.0)
+- [x] Model strategy aligned with GitHub best practices (v4.0)
 - [ ] Companion agent definition (`~/.copilot/agents/swarm-orchestrator.agent.md`)
 - [ ] Cross-session lesson tracking with JSONL persistence
 - [ ] Automated tier selection heuristics
+- [ ] Plugin packaging for `/plugin install`
 - [ ] Swarm visualization/replay tool
 - [ ] Benchmark suite against single-agent baselines
+
+---
+
+## 📋 Changelog
+
+### v4.0 (2026-02-19)
+- **Custom agents:** Uses `architect`, `clean-code`, `code-review`, `debugger` instead of generic prompts
+- **Fleet mode:** Pre-flight `/fleet` for parallel subagent execution
+- **Plan mode:** `/plan` recommended for Full Swarm and Debate tiers
+- **Model strategy:** Aligned with GitHub's best practices (Opus for reasoning, Codex for review)
+- **Monitoring:** `/tasks` for tracking subagents, `/context` for token management
+- **Fixed:** Debate examples missing `agent_type`, cross-session path corrected
+- **Trimmed:** Removed redundant prompt templates (custom agents have built-in prompts)
+
+### v3.0 (2026-02-19)
+- Rewrote for CLI operability: 733→232 lines (68% reduction)
+- Fixed task tool syntax, parallel safety rules, SQL persistence model
+- Moved execution checklists to top of file
+
+### v2.0 (2026-02-19)
+- Paper-alignment audit: 9 improvements from ablation experiments
+- Added co-player inference, anonymous history, quality scoring, dual timescale
+
+### v1.0 (2026-02-19)
+- Initial release with 6 agent archetypes and 3 orchestration modes
 
 ---
 
