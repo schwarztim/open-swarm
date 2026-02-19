@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-Skill-8957e5?logo=github)](https://docs.github.com/copilot)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
-[![Version](https://img.shields.io/badge/version-5.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-5.1-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -114,7 +114,9 @@ flowchart TD
     BLITZ --> EXECUTE
     DEBATE --> EXECUTE
     
-    EXECUTE["Execute Rounds<br/><i>Cross-communication via<br/>anonymous history</i>"] --> REVIEW{"🔍 Review<br/>(MANDATORY)"}
+    EXECUTE["Execute Rounds<br/><i>Cross-communication via<br/>anonymous history</i>"] --> MERGE["🔀 Merge Step<br/><i>Haiku synthesizes<br/>parallel outputs</i>"]
+    MERGE --> REVIEW{"🔍 Review<br/>(MANDATORY)"}
+    style MERGE fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
     REVIEW --> SCORE{"Score ≥ 7/10?"}
     SCORE -->|"✅ Yes"| INTEGRATE{"Cross-workstream<br/>integration check"}
     SCORE -->|"❌ No"| ROUND{"Round < 3?"}
@@ -245,7 +247,8 @@ sequenceDiagram
     
     U->>E: Task description
     Note over E: ⚡ 3 explorers in parallel (Haiku)
-    E->>A: Anonymous findings (merged)
+    E->>E: 🔀 MERGE_STEP (Haiku)<br/>Deduplicate & structure
+    E->>A: Anonymous findings doc
     A->>C: Design split into workstreams
     Note over C: ⚡ Parallel coders, each sees<br/>other workstreams (cross-comm)
     C->>R: Anonymous implementations
@@ -305,7 +308,8 @@ sequenceDiagram
     
     U->>E: Task scope
     Note over E: ⚡ 5 parallel explorers<br/>structure/patterns/deps/gaps/domain
-    E->>A: Anonymous findings (merged)
+    E->>E: 🔀 MERGE_STEP (Haiku)<br/>Deduplicate & structure
+    E->>A: Anonymous findings doc
     A->>A: Prioritize P0/P1/P2 workstreams
     A->>C: Design + workstream specs
     Note over C: ⚡ N parallel coders<br/>Each sees all other workstream specs
@@ -601,6 +605,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - [x] **Cross-communication patterns from paper §3.2** (v5.0)
 - [x] **Mandatory review loop enforcement** (v5.0)
 - [x] **Parallel coders with workstream awareness** (v5.0)
+- [x] **Merge Protocol after parallel fan-out** (v5.1 — inspired by Agent Framework)
 - [ ] Companion agent definition (`~/.copilot/agents/swarm-orchestrator.agent.md`)
 - [ ] Cross-session lesson tracking with JSONL persistence
 - [ ] Automated tier selection heuristics
@@ -611,6 +616,12 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v5.1 (2026-02-19)
+- **Merge Protocol:** Formal synthesis step after every parallel fan-out phase (inspired by Agent Framework's ConcurrentBuilder)
+- Lightweight haiku merge agent deduplicates findings, preserves unique insights, flags contradictions
+- Applied to all parallel phases across Full Swarm and Blitz tiers
+- Replaces ad-hoc "collect and concatenate" with structured anonymous documents
 
 ### v5.0 (2026-02-19)
 - **Blitz tier:** Maximum throughput mode for massive codebases (10+ agents, 50+ files)
