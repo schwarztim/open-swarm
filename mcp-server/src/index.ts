@@ -12,6 +12,7 @@ import {
   handleSwarmMerge,
   handleSwarmStatus,
   handleSwarmGate,
+  handleSwarmModels,
 } from './tools.js';
 
 const server = new Server(
@@ -106,6 +107,17 @@ const TOOLS = [
       required: ['sessionId', 'scores'],
     },
   },
+  {
+    name: 'swarm_models',
+    description: 'List or set available models for swarm orchestration. Models are auto-categorized into pools (premium, coder, critic, fast) by tier and provider.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        action: { type: 'string', enum: ['list', 'set'], description: 'Action to perform (default: list)' },
+        models: { type: 'array', items: { type: 'string' }, description: 'Model IDs to set as available (only used with action=set)' },
+      },
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -126,6 +138,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmStatus(args as Parameters<typeof handleSwarmStatus>[0]);
     case 'swarm_gate':
       return handleSwarmGate(args as Parameters<typeof handleSwarmGate>[0]);
+    case 'swarm_models':
+      return handleSwarmModels(args as Parameters<typeof handleSwarmModels>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }

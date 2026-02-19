@@ -9,6 +9,12 @@ import {
   selectTier,
   buildAnonymousHistory,
   getCoderModel,
+  getAvailableModels,
+  setAvailableModels,
+  premiumPool,
+  coderPool,
+  criticPool,
+  fastPool,
 } from './state.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -431,5 +437,42 @@ export function handleSwarmGate(args: {
     retryPhase,
     retryInstructions: retryDetails.join('\n\n---\n\n'),
     nextAction: `Scores below threshold. Re-run the "${retryPhase}" phase for failing workstreams, then call swarm_gate again.`,
+  });
+}
+
+// ── swarm_models ──────────────────────────────────────────────────────
+
+export function handleSwarmModels(args: {
+  action?: 'list' | 'set';
+  models?: string[];
+}): ToolResult {
+  const action = args.action ?? 'list';
+
+  if (action === 'set' && args.models && args.models.length > 0) {
+    setAvailableModels(args.models);
+    return ok({
+      action: 'set',
+      accepted: getAvailableModels().map((m) => m.id),
+      ignored: args.models.filter((id) => !getAvailableModels().some((m) => m.id === id)),
+      pools: {
+        premium: [...premiumPool],
+        coder: [...coderPool],
+        critic: [...criticPool],
+        fast: [...fastPool],
+      },
+      message: `Model pools updated. ${getAvailableModels().length} models active.`,
+    });
+  }
+
+  return ok({
+    action: 'list',
+    available: getAvailableModels().map((m) => ({ id: m.id, tier: m.tier, provider: m.provider })),
+    pools: {
+      premium: [...premiumPool],
+      coder: [...coderPool],
+      critic: [...criticPool],
+      fast: [...fastPool],
+    },
+    total: getAvailableModels().length,
   });
 }
