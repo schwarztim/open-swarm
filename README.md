@@ -468,6 +468,19 @@ thv run localhost:5555/open-swarm-mcp:latest --name open-swarm --transport stdio
 thv list | grep open-swarm
 ```
 
+Then register with Copilot CLI — add to `~/.copilot/mcp-config.json`:
+```json
+{
+  "mcpServers": {
+    "open-swarm": {
+      "type": "http",
+      "url": "http://127.0.0.1:<PORT>/mcp"
+    }
+  }
+}
+```
+Replace `<PORT>` with the port from `thv list` output.
+
 Then install the thin SKILL.md wrapper:
 ```bash
 mkdir -p ~/.copilot/skills/swarm-orchestrator && \

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "mcpu": {
+      "command": "mcpu-mcp",
+      "args": [
+        "--auto-disconnect",
+        "--idle-timeout",
+        "10"
+      ]
+    },
+    "open-swarm": {
+      "type": "http",
+      "url": "http://127.0.0.1:34052/mcp"
+    }
+  }
+}
