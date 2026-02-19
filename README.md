@@ -457,15 +457,15 @@ Aligned with [GitHub's best practices](https://docs.github.com/copilot/how-tos/c
 ```bash
 # One-liner install
 mkdir -p ~/.copilot/skills/swarm-orchestrator && \
-  curl -sL https://raw.githubusercontent.com/schwarztim/swarm-orchestrator-skill/main/SKILL.md \
+  curl -sL https://raw.githubusercontent.com/schwarztim/open-swarm/main/SKILL.md \
   -o ~/.copilot/skills/swarm-orchestrator/SKILL.md
 ```
 
 Or clone the repo:
 
 ```bash
-git clone https://github.com/schwarztim/swarm-orchestrator-skill.git
-cp swarm-orchestrator-skill/SKILL.md ~/.copilot/skills/swarm-orchestrator/SKILL.md
+git clone https://github.com/schwarztim/open-swarm.git
+cp open-swarm/SKILL.md ~/.copilot/skills/swarm-orchestrator/SKILL.md
 ```
 
 Restart Copilot CLI, or run `/skills reload` if already in a session. The skill appears in `/skills`.
