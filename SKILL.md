@@ -8,65 +8,87 @@ description: >-
 license: MIT
 metadata:
   author: Tim Schwarz
-  version: "6.0"
+  version: "6.1"
   paper: "arXiv:2602.16301 — Wołczyk, Weis, Nasser et al. (2026)"
   mcp: open-swarm
 ---
 
-# Swarm Orchestrator v6.0 — MCP-Enforced
+# ⛔ MANDATORY FIRST ACTION — READ BEFORE DOING ANYTHING ELSE
 
-This skill is powered by the **open-swarm** MCP server running on ToolHive.
-The server enforces model diversity, phase ordering, merge steps, and quality gates
-as mandatory tool calls — not suggestions.
+When this skill is invoked — whether by name, by "/swarm-orchestrator", or because the user
+said "swarm", "blitz", "fleet", "debate this", or any multi-agent request — you MUST do this:
 
-## How It Works
+**Step 0: Call the `swarm_init` MCP tool IMMEDIATELY.**
 
-When the user asks to "swarm this", "use fleet mode", or "blitz this":
-
-1. **Call `swarm_init`** with the task description. The server auto-selects the tier
-   (duo/trio/full-swarm/blitz/debate) or accepts an explicit tier.
-2. **Call `swarm_next`** to get the exact `task()` parameters for the current phase.
-   The server picks the model, agent type, and mode. You execute exactly what it returns.
-3. **After each task completes, call `swarm_submit`** with the output.
-4. **When the server says to merge, call `swarm_merge`** with the parallel outputs.
-5. **At gate phases, call `swarm_gate`** with scores. Server decides proceed/retry.
-6. **Repeat `swarm_next` → execute → `swarm_submit`** until all phases complete.
-
-## Rules
-
-1. **NEVER pick your own models.** The server assigns models via `swarm_next`. Use them exactly.
-2. **NEVER skip merge.** If `swarm_submit` says "call swarm_merge", you MUST merge before advancing.
-3. **NEVER stop early.** Continue the `swarm_next` loop until the server says "All phases complete."
-4. **NEVER expose agent identity.** The server anonymizes history. Do not add model or agent names to prompts.
-5. **Check `swarm_status`** if you lose track of where you are.
-
-## Tiers
-
-| Tier | Agents | Phases | When |
-|------|--------|--------|------|
-| duo | 2 | 3 | Simple fixes, single-file |
-| trio | 3 | 5 | Design + implement + review |
-| full-swarm | 6+ | 10 | Multi-file refactors, architecture |
-| blitz | 10+ | 11 | Massive codebases, full-app overhauls |
-| debate | N+1 | 5 | Architecture decisions, tradeoff analysis |
-
-## Quick Start
-
-When user says "swarm this" or similar:
 ```
-1. swarm_init(task="<user's task description>")  → get sessionId
-2. swarm_next(sessionId)                         → get task() params
-3. task(…exact params from step 2…)              → execute
-4. swarm_submit(sessionId, output=result)         → advance
-5. Repeat 2-4 until done
+swarm_init(task="<the user's full task description>", tier="<if user specified one>", fileCount=<if known>)
 ```
-## Pre-Flight
 
-When invoked, if the tier is full-swarm, blitz, or debate, prompt the user:
-"Swarm needs fleet mode for parallel agents. Please run `/fleet` if not already enabled."
+DO NOT launch any task() calls yourself.
+DO NOT create your own plan.
+DO NOT pick models.
+DO NOT explore the codebase first.
+DO NOT do anything except call `swarm_init`.
 
-## Paper Reference
+The MCP server controls everything. You are the executor, not the planner.
 
-Based on arXiv:2602.16301 — cooperation emerges from diversity + anonymous history + mutual shaping.
-The MCP server implements this: diverse models assigned server-side, anonymous history built server-side,
-quality gates enforce mutual shaping through iterative improvement loops.
+# Execution Loop — Follow Exactly
+
+After `swarm_init` returns a `sessionId`, enter this loop and DO NOT exit it:
+
+```
+LOOP:
+  1. Call swarm_next(sessionId)           → server returns exact task() parameters
+  2. Execute task() with EXACT params     → do not change model, agent_type, or mode
+  3. Collect output (read_agent if background, or direct result if sync)
+  4. Call swarm_submit(sessionId, output)  → server tells you what to do next
+  5. If server says "call swarm_merge"     → call swarm_merge(sessionId, outputs=[...])
+     then call swarm_submit with merge result
+  6. If server says "call swarm_gate"      → call swarm_gate(sessionId, scores=[...])
+  7. If server says "All phases complete"  → STOP. Otherwise → go to step 1.
+```
+
+# ⛔ Violations That Break The System
+
+These have been observed in real sessions. Each one causes failure:
+
+1. **Using DEFAULT model.** Every task() call MUST include the `model` field from swarm_next.
+   If you write `task(agent_type="explore", ...)` without a model, it is a BUG.
+2. **Skipping swarm_init.** If you launch task() calls without first calling swarm_init,
+   you are not using the swarm — you are freelancing. This defeats the entire system.
+3. **Ignoring swarm_next.** The server picks models, agent types, and modes. You do not.
+   Copy the task() parameters from swarm_next responses exactly. Do not improvise.
+4. **Skipping merge.** When swarm_submit says "call swarm_merge", you MUST merge.
+   Going directly to the next build phase without merging is a BUG.
+5. **Stopping after planning.** Blitz has 11 phases. If you stop at phase 3 (triage),
+   you completed 27% of the work. Continue the loop until the server says done.
+6. **Making your own plan.** Do not enter plan mode. Do not create a plan.md.
+   The server's triage/design phase IS the plan. Execute it.
+
+# Pre-Flight
+
+For full-swarm, blitz, or debate tiers: use `ask_user` to prompt:
+"Swarm orchestrator needs fleet mode. Please run /fleet if not already enabled, then say go."
+Wait for confirmation. Then call `swarm_init`.
+
+For duo or trio: call `swarm_init` directly. No pre-flight needed.
+
+# Tiers (server auto-selects, or user specifies)
+
+| Tier | Agents | Phases | Trigger |
+|------|--------|--------|---------|
+| duo | 2 | 3 | Simple fix, single-file |
+| trio | 3 | 5 | "design", "feature", multi-file |
+| full-swarm | 6+ | 10 | "refactor", "security", "architecture" |
+| blitz | 10+ | 11 | "massive", "entire codebase", 50+ files |
+| debate | N+1 | 5 | "debate", "which approach", "tradeoff" |
+
+# Why This Architecture
+
+Based on arXiv:2602.16301. The paper proves cooperation emerges from:
+- **Diverse models** (server assigns different models to each agent)
+- **Anonymous history** (server strips identity from all outputs)
+- **Mutual shaping** (quality gates force iterative improvement)
+
+Remove any one of these → agents defect instead of cooperating.
+The MCP server enforces all three. Your only job is to follow the loop.
