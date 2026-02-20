@@ -1,11 +1,15 @@
 import {
   type Tier,
   type ExecutionMode,
+  type RatePreset,
   type PhaseDefinition,
   type SwarmSession,
   type PhaseState,
   type BoardMessage,
+  type AgentGroup,
   TIER_PHASES,
+  RATE_PRESETS,
+  resolveRateLimit,
   createSession,
   getSession,
   getPhaseDefinition,
@@ -13,8 +17,10 @@ import {
   selectTier,
   buildAnonymousHistory,
   buildBoardContext,
+  buildManagerPrompt,
   getReadyWorkstreams,
   getBlockedWorkstreams,
+  groupWorkstreams,
   postToBoard,
   readBoard,
   storePrompt,
@@ -23,6 +29,8 @@ import {
   getAvailableModels,
   setAvailableModels,
   getModelProvider,
+  getManagerAgentName,
+  getWorkerAgentName,
   premiumPool,
   coderPool,
   criticPool,
@@ -40,16 +48,6 @@ function ok(data: unknown): ToolResult {
 
 function err(message: string): ToolResult {
   return ok({ error: message });
-}
-
-function getWorkerAgentName(modelId: string): string {
-  const provider = getModelProvider(modelId);
-  switch (provider) {
-    case 'anthropic': return 'worker-anthropic';
-    case 'openai': return 'worker-openai';
-    case 'google': return 'worker-gemini';
-    default: return 'worker';
-  }
 }
 
 function buildTaskCall(
@@ -120,12 +118,24 @@ export function handleSwarmInit(args: {
   tier?: Tier;
   fileCount?: number;
   executionMode?: ExecutionMode;
+  concurrency?: number | string;  // number or preset name
 }): ToolResult {
   const { task, fileCount } = args;
   if (!task) return err('Missing required field: task');
 
   const tier = args.tier ?? selectTier(task, fileCount);
-  const session = createSession(tier, task, args.executionMode);
+
+  // Resolve concurrency: accept a preset name ("conservative", "standard", etc.) or a number
+  let resolvedConcurrency: number;
+  if (args.concurrency === undefined || args.concurrency === null) {
+    resolvedConcurrency = resolveRateLimit(undefined);
+  } else if (typeof args.concurrency === 'string' && args.concurrency in RATE_PRESETS) {
+    resolvedConcurrency = resolveRateLimit(args.concurrency as RatePreset);
+  } else {
+    resolvedConcurrency = resolveRateLimit(Number(args.concurrency));
+  }
+
+  const session = createSession(tier, task, args.executionMode, resolvedConcurrency);
   const phaseDefs = TIER_PHASES[tier];
 
   // Seed default workstreams for parallel tiers
@@ -147,12 +157,26 @@ export function handleSwarmInit(args: {
     }
   }
 
+  // Build rate limit info for response
+  const matchedPreset = Object.entries(RATE_PRESETS).find(([_, v]) => v.concurrency === resolvedConcurrency);
+  const rateLimitInfo = {
+    concurrency: resolvedConcurrency > 0 ? resolvedConcurrency : 'unlimited',
+    preset: matchedPreset ? matchedPreset[0] : 'custom',
+    maxEstimatedAgents: resolvedConcurrency > 0 ? resolvedConcurrency * 5 : 'unlimited',
+    description: matchedPreset ? matchedPreset[1].description : `Custom: ${resolvedConcurrency} concurrent L2 managers`,
+    recommendedPlan: matchedPreset ? matchedPreset[1].plan : 'depends on usage',
+  };
+
   return ok({
     sessionId: session.id,
     tier,
     totalPhases: phaseDefs.length,
     firstPhase: phaseDefs[0].name,
     executionMode: session.executionMode,
+    rateLimit: rateLimitInfo,
+    availablePresets: Object.fromEntries(
+      Object.entries(RATE_PRESETS).map(([k, v]) => [k, { concurrency: v.concurrency, agents: v.maxAgents, plan: v.plan }])
+    ),
     outputDir: session.executionMode === 'subprocess' ? session.outputDir : undefined,
     nextAction: `Call swarm_next with sessionId "${session.id}" to get the first task.`,
   });
@@ -193,33 +217,106 @@ export function handleSwarmNext(args: {
     return handleSwarmNextSubprocess(session, phaseDef, phase, phaseIdx, history);
   }
 
-  // ── Task mode (existing behavior) ──
+  // ── Task mode with 3-tier hierarchy ──
+  // Parallel phases: dispatch L2 managers (not L3 workers directly)
+  // Each L2 manager spawns its own L3 workers via task()
   if (phaseDef.parallel) {
-    const wsCount = workstreamCount(session);
-    const taskCalls = [];
-    for (let i = 0; i < wsCount; i++) {
-      const ws = session.workstreams[i];
-      const wsContext = ws
-        ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(', ') || 'TBD'}`
-        : `\nWorkstream: ws-${i}`;
-      const boardCtx = ws ? buildBoardContext(session, ws.id) : '';
-      const prompt = `${history}${boardCtx}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream.`;
-      const desc = `${phaseDef.name} workstream ${i}`;
-      taskCalls.push(buildTaskCall(session, phaseDef, desc, prompt, getCoderModel(i)));
+    // Create agent groups if not yet done for this phase
+    if (session.agentGroups.length === 0 || session.agentGroups.every(g => g.status === 'done')) {
+      groupWorkstreams(session);
     }
+
+    // Count in-flight managers (dispatched but not done)
+    const inFlight = session.agentGroups.filter(g => g.status === 'dispatched').length;
+    const limit = session.concurrency > 0 ? session.concurrency : Infinity;
+    const availableSlots = Math.max(0, limit - inFlight);
+
+    // If concurrency is saturated, tell the orchestrator to wait
+    if (availableSlots === 0) {
+      const dispatched = session.agentGroups.filter(g => g.status === 'dispatched');
+      const statusBoard = `${session.outputDir}/status-board.md`;
+      return ok({
+        sessionId: session.id,
+        phase: phaseDef.name,
+        phaseIndex: phaseIdx,
+        parallel: true,
+        rateLimited: true,
+        concurrency: session.concurrency,
+        inFlight,
+        waitingFor: dispatched.map(g => g.id),
+        statusBoard,
+        nextAction: [
+          `⏳ Rate limit: ${session.concurrency} concurrent managers max, ${inFlight} in-flight.`,
+          `Wait for current managers to complete, then call swarm_submit for each.`,
+          `After submitting, call swarm_next again to dispatch the next wave.`,
+          ``,
+          `Monitor progress: bash("cat ${statusBoard} 2>/dev/null || echo 'Waiting...'")`,
+        ].join('\n'),
+      });
+    }
+
+    // Release only up to the concurrency limit
+    const pending = session.agentGroups.filter(g => g.status === 'pending');
+    const toDispatch = pending.slice(0, availableSlots);
+    const managerCalls = [];
+
+    for (const group of toDispatch) {
+      const managerPrompt = buildManagerPrompt(session, group, phaseDef.name, history);
+      const promptRef = storePrompt(session, managerPrompt);
+      group.status = 'dispatched';
+
+      managerCalls.push({
+        subagent_type: group.managerAgent,
+        description: `${phaseDef.name} ${group.id} (${group.workerSlots.length} workers)`,
+        promptRef,
+        groupId: group.id,
+        workerCount: group.workerSlots.length,
+        workstreams: group.workerSlots.map(ws => ws.workstreamId),
+      });
+    }
+
+    const remainingPending = session.agentGroups.filter(g => g.status === 'pending').length;
+    const totalGroups = session.agentGroups.length;
+
     phase.status = 'in_progress';
+    const statusBoard = `${session.outputDir}/status-board.md`;
     return ok({
       sessionId: session.id,
       phase: phaseDef.name,
       phaseIndex: phaseIdx,
       parallel: true,
-      workstreamCount: wsCount,
-      taskCalls,
-      nextAction: `Launch all ${wsCount} task() calls simultaneously. For each taskCall, call swarm_dispatch with sessionId="${session.id}" and promptRef=taskCall.promptRef, subagent_type=taskCall.subagent_type, description=taskCall.description. Then call swarm_submit for each output.`,
+      hierarchy: 'L1 → L2 managers → L3 workers',
+      wave: {
+        dispatching: managerCalls.length,
+        inFlight: inFlight + managerCalls.length,
+        remaining: remainingPending,
+        total: totalGroups,
+        concurrency: session.concurrency > 0 ? session.concurrency : 'unlimited',
+      },
+      totalWorkers: session.workstreams.length,
+      statusBoard,
+      managerCalls,
+      nextAction: [
+        `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ''}. For EACH managerCall:`,
+        `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=managerCall.promptRef, subagent_type=managerCall.subagent_type, description=managerCall.description)`,
+        `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt)`,
+        ``,
+        `After dispatching, MONITOR the status board:`,
+        `  bash("cat ${statusBoard} 2>/dev/null || echo 'No updates yet'")`,
+        ``,
+        `When each manager task() completes:`,
+        `  3. Read the manager's report (the task output)`,
+        `  4. Check for ESCALATIONS — if any, YOU (the boss) make the decision`,
+        `  5. Call swarm_submit(sessionId="${session.id}", output=<manager report>)`,
+        `  6. Call swarm_relay to post cross-team findings for the next group`,
+        remainingPending > 0
+          ? `  7. Call swarm_next again — the server will release the next wave of managers.`
+          : '',
+      ].filter(Boolean).join('\n'),
     });
   }
 
-  // Single task
+  // Single (non-parallel) task — dispatched directly as L3 worker
   const prompt = `${history}\n\nExecute the "${phaseDef.name}" phase for this task.`;
   const desc = `${phaseDef.name} phase`;
   const taskCall = buildTaskCall(session, phaseDef, desc, prompt);
@@ -344,12 +441,27 @@ export function handleSwarmSubmit(args: {
   phase.outputs.push(args.output);
   if (args.agentId) phase.agentIds.push(args.agentId);
 
-  // Auto-post to board — every submit becomes a finding for other workstreams
-  const wsIndex = phase.outputs.length - 1;
-  const ws = session.workstreams[wsIndex];
-  const wsId = ws?.id ?? `ws-${wsIndex}`;
-  postToBoard(session, wsId, 'finding', args.output);
-  if (ws) ws.status = 'done';
+  // Track L2 manager group completion
+  const groupIndex = phase.outputs.length - 1;
+  const group = session.agentGroups[groupIndex];
+  if (group) {
+    group.status = 'done';
+    group.report = args.output;
+    // Post L2 report to board at group level
+    postToBoard(session, group.id, 'report', args.output, 'L2', group.id);
+    // Mark all workstreams in this group as done
+    for (const slot of group.workerSlots) {
+      const ws = session.workstreams.find(w => w.id === slot.workstreamId);
+      if (ws) ws.status = 'done';
+    }
+  } else {
+    // Non-grouped submit (single-task phases)
+    const wsIndex = phase.outputs.length - 1;
+    const ws = session.workstreams[wsIndex];
+    const wsId = ws?.id ?? `ws-${wsIndex}`;
+    postToBoard(session, wsId, 'finding', args.output);
+    if (ws) ws.status = 'done';
+  }
 
   // Add anonymized history entry
   const currentRound = session.rounds.length > 0
@@ -362,7 +474,10 @@ export function handleSwarmSubmit(args: {
   });
 
   // Check if all outputs collected
-  const expectedOutputs = phaseDef.parallel ? workstreamCount(session) : 1;
+  // For parallel phases with hierarchy: expect one output per L2 manager group
+  const expectedOutputs = phaseDef.parallel
+    ? (session.agentGroups.length > 0 ? session.agentGroups.length : workstreamCount(session))
+    : 1;
   const allCollected = phase.outputs.length >= expectedOutputs;
 
   if (allCollected) {
@@ -531,6 +646,21 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
       model: ws.modelAssigned,
       provider: getModelProvider(ws.modelAssigned),
     })),
+    hierarchy: session.agentGroups.length > 0 ? {
+      model: 'L1 orchestrator → L2 managers → L3 workers',
+      groups: session.agentGroups.map(g => ({
+        id: g.id,
+        manager: g.managerAgent,
+        managerModel: g.managerModel,
+        status: g.status,
+        workers: g.workerSlots.map(ws => ({
+          workstream: ws.workstreamId,
+          agent: ws.agentType,
+          model: ws.model,
+        })),
+        hasReport: !!g.report,
+      })),
+    } : undefined,
     historySummary,
     convergence: session.rounds.length > 0 ? (() => {
       const latestRound = Math.max(...session.rounds.map((r) => r.round));
@@ -777,6 +907,63 @@ export function handleSwarmDispatch(args: {
   });
 }
 
+// ── swarm_throttle ────────────────────────────────────────────────────
+// Live rate limit adjustment. View or change concurrency mid-session.
+
+export function handleSwarmThrottle(args: {
+  sessionId: string;
+  concurrency?: string;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  const previousConcurrency = session.concurrency;
+
+  // If concurrency provided, update it
+  if (args.concurrency !== undefined && args.concurrency !== null) {
+    if (typeof args.concurrency === 'string' && args.concurrency in RATE_PRESETS) {
+      session.concurrency = resolveRateLimit(args.concurrency as RatePreset);
+    } else {
+      const num = Number(args.concurrency);
+      if (!isNaN(num) && num >= 0) {
+        session.concurrency = num;
+      } else {
+        return err(`Invalid concurrency: "${args.concurrency}". Use a preset name (${Object.keys(RATE_PRESETS).join(', ')}) or a number >= 0.`);
+      }
+    }
+  }
+
+  // Find matching preset
+  const matchedPreset = Object.entries(RATE_PRESETS).find(([_, v]) => v.concurrency === session.concurrency);
+
+  // Count in-flight groups
+  const inFlight = session.agentGroups.filter(g => g.status === 'dispatched').length;
+  const completed = session.agentGroups.filter(g => g.status === 'done').length;
+  const pending = session.agentGroups.filter(g => g.status === 'pending').length;
+
+  return ok({
+    previous: previousConcurrency! > 0 ? previousConcurrency : 'unlimited',
+    current: session.concurrency! > 0 ? session.concurrency : 'unlimited',
+    changed: args.concurrency !== undefined,
+    preset: matchedPreset ? matchedPreset[0] : 'custom',
+    description: matchedPreset ? matchedPreset[1].description : `Custom: ${session.concurrency} concurrent L2 managers`,
+    groupStatus: {
+      total: session.agentGroups.length,
+      inFlight,
+      completed,
+      pending,
+    },
+    availablePresets: Object.fromEntries(
+      Object.entries(RATE_PRESETS).map(([k, v]) => [k, {
+        concurrency: v.concurrency || 'unlimited',
+        estimatedAgents: v.maxAgents === Infinity ? 'unlimited' : v.maxAgents,
+        plan: v.plan,
+        description: v.description,
+      }])
+    ),
+  });
+}
+
 // ── swarm_relay ───────────────────────────────────────────────────────
 // Orchestrator posts findings from a completed workstream to the board.
 // The board is the programmatic communication layer between managers.
@@ -784,14 +971,17 @@ export function handleSwarmDispatch(args: {
 export function handleSwarmRelay(args: {
   sessionId: string;
   workstream: string;
-  type?: 'finding' | 'blocker' | 'decision' | 'status';
+  type?: 'finding' | 'blocker' | 'decision' | 'status' | 'plan' | 'report';
+  level?: 'L1' | 'L2' | 'L3';
+  group?: string;
   content: string;
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
   const type = args.type ?? 'finding';
-  const msg = postToBoard(session, args.workstream, type, args.content);
+  const level = args.level ?? 'L1';
+  const msg = postToBoard(session, args.workstream, type, args.content, level, args.group);
 
   // Mark workstream status if blocker
   if (type === 'blocker') {
@@ -821,19 +1011,23 @@ export function handleSwarmRelay(args: {
 export function handleSwarmBoard(args: {
   sessionId: string;
   workstream?: string;
-  types?: ('finding' | 'blocker' | 'decision' | 'status')[];
+  types?: ('finding' | 'blocker' | 'decision' | 'status' | 'plan' | 'report')[];
+  level?: 'L1' | 'L2' | 'L3';
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
-  const messages = readBoard(session, args.workstream, args.types);
+  let messages = readBoard(session, args.workstream, args.types);
+  // Filter by level if specified
+  if (args.level) {
+    messages = messages.filter(m => m.level === args.level);
+  }
   const ready = getReadyWorkstreams(session);
   const blocked = getBlockedWorkstreams(session);
   const blockers = session.board.filter((m) => m.type === 'blocker');
   const decisions = session.board.filter((m) => m.type === 'decision');
+  const reports = session.board.filter((m) => m.type === 'report');
   const unresolvedBlockers = blockers.filter((b) => {
-    // A blocker is resolved if any decision was posted AFTER the blocker
-    // and either references the workstream or was posted by the orchestrator
     return !decisions.some((d) =>
       d.timestamp >= b.timestamp &&
       (d.content.toLowerCase().includes(b.workstream.toLowerCase()) ||
@@ -863,9 +1057,25 @@ export function handleSwarmBoard(args: {
         blocker: messages.filter((m) => m.type === 'blocker').length,
         decision: messages.filter((m) => m.type === 'decision').length,
         status: messages.filter((m) => m.type === 'status').length,
+        plan: messages.filter((m) => m.type === 'plan').length,
+        report: messages.filter((m) => m.type === 'report').length,
+      },
+      byLevel: {
+        L1: messages.filter((m) => m.level === 'L1').length,
+        L2: messages.filter((m) => m.level === 'L2').length,
+        L3: messages.filter((m) => m.level === 'L3').length,
       },
       unresolvedBlockers: unresolvedBlockers.length,
     },
+    hierarchy: session.agentGroups.length > 0 ? {
+      groups: session.agentGroups.map(g => ({
+        id: g.id,
+        status: g.status,
+        manager: g.managerAgent,
+        hasReport: !!g.report,
+        workers: g.workerSlots.map(ws => ws.workstreamId),
+      })),
+    } : undefined,
     workstreams: {
       ready: ready.map((w) => w.id),
       blocked: blocked.map((w) => ({ id: w.id, waitingOn: w.dependencies })),

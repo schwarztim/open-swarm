@@ -66,7 +66,7 @@
     },
     "worker-anthropic": {
       "name": "worker-anthropic",
-      "description": "Anthropic provider worker \u2014 routes here when provider=anthropic",
+      "description": "Anthropic provider worker — routes here when provider=anthropic",
       "mode": "subagent",
       "model": "github-copilot/claude-sonnet-4",
       "temperature": 0.3,
@@ -87,7 +87,7 @@
     },
     "worker-openai": {
       "name": "worker-openai",
-      "description": "OpenAI provider worker \u2014 routes here when provider=openai",
+      "description": "OpenAI provider worker — routes here when provider=openai",
       "mode": "subagent",
       "model": "github-copilot/gpt-5.2-codex",
       "temperature": 0.3,
@@ -108,7 +108,7 @@
     },
     "worker-gemini": {
       "name": "worker-gemini",
-      "description": "Google provider worker \u2014 routes here when provider=google",
+      "description": "Google provider worker — routes here when provider=google",
       "mode": "subagent",
       "model": "github-copilot/gemini-3-pro-preview",
       "temperature": 0.3,
@@ -129,7 +129,7 @@
     },
     "worker-haiku": {
       "name": "worker-haiku",
-      "description": "Fast worker \u2014 merge phases and lightweight tasks",
+      "description": "Fast worker — merge phases and lightweight tasks",
       "mode": "subagent",
       "model": "github-copilot/claude-haiku-4.5",
       "temperature": 0.2,
@@ -174,7 +174,74 @@
         "swarm_status": true,
         "swarm_gate": true,
         "swarm_collect": true,
-        "swarm_models": true
+        "swarm_models": true,
+        "swarm_relay": true,
+        "swarm_board": true,
+        "swarm_dispatch": true,
+        "swarm_throttle": true
+      }
+    },
+    "manager-anthropic": {
+      "name": "manager-anthropic",
+      "description": "L2 Agent Manager (Anthropic) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/manager.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "manager-openai": {
+      "name": "manager-openai",
+      "description": "L2 Agent Manager (OpenAI) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.3-codex",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/manager.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "manager-gemini": {
+      "name": "manager-gemini",
+      "description": "L2 Agent Manager (Google) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
+      "mode": "subagent",
+      "model": "github-copilot/gemini-3-pro-preview",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/manager.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
       }
     }
   },
@@ -227,5 +294,6 @@
         "10"
       ]
     }
-  }
+  },
+  "small_model": "github-copilot/gpt-4.1"
 }

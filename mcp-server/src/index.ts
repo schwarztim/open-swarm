@@ -17,6 +17,7 @@ import {
   handleSwarmRelay,
   handleSwarmBoard,
   handleSwarmDispatch,
+  handleSwarmThrottle,
 } from './tools.js';
 
 const server = new Server(
@@ -34,6 +35,7 @@ const TOOLS = [
         task: { type: 'string', description: 'Description of the task to swarm on' },
         tier: { type: 'string', enum: ['duo', 'trio', 'full-swarm', 'blitz', 'debate', 'unleashed'], description: 'Swarm tier (auto-selected if omitted)' },
         fileCount: { type: 'number', description: 'Approximate number of files involved (helps tier selection)' },
+        concurrency: { type: 'string', description: 'Rate limit preset name ("conservative", "standard", "aggressive", "max", "unlimited") OR a number for custom concurrency. Default: "standard" (3 concurrent L2 managers). Controls how many L2 managers run simultaneously.' },
       },
       required: ['task'],
     },
@@ -147,27 +149,30 @@ const TOOLS = [
   },
   {
     name: 'swarm_relay',
-    description: 'Post findings from a completed workstream to the shared board. The orchestrator uses this to relay discoveries between managers. Board context is automatically injected into subsequent swarm_next prompts. Use type="blocker" to flag issues that require orchestrator decision before proceeding.',
+    description: 'Post findings from a completed workstream or manager group to the shared board. The orchestrator uses this to relay discoveries between L2 managers. Board context is automatically injected into subsequent swarm_next prompts. Use type="blocker" to flag issues, type="plan" for L2 plans, type="report" for L2 manager reports.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         sessionId: { type: 'string', description: 'Swarm session ID' },
-        workstream: { type: 'string', description: 'Workstream ID that produced the finding (e.g. ws-0)' },
-        type: { type: 'string', enum: ['finding', 'blocker', 'decision', 'status'], description: 'Message type (default: finding). "blocker" halts dependent workstreams until resolved by a "decision".' },
-        content: { type: 'string', description: 'The finding, blocker, or decision content' },
+        workstream: { type: 'string', description: 'Workstream or group ID that produced the finding (e.g. ws-0 or group-0)' },
+        type: { type: 'string', enum: ['finding', 'blocker', 'decision', 'status', 'plan', 'report'], description: 'Message type. "blocker" halts work. "plan" for L2 manager plans. "report" for L2 final reports.' },
+        level: { type: 'string', enum: ['L1', 'L2', 'L3'], description: 'Hierarchy level of the sender (default: L1)' },
+        group: { type: 'string', description: 'Agent group ID if message is from/about a specific L2 group' },
+        content: { type: 'string', description: 'The finding, blocker, plan, report, or decision content' },
       },
       required: ['sessionId', 'workstream', 'content'],
     },
   },
   {
     name: 'swarm_board',
-    description: 'Read the shared message board. Returns all findings, blockers, decisions posted by workstreams. Shows ready/blocked workstream status. The orchestrator reads this to make informed decisions about what to dispatch next.',
+    description: 'Read the shared message board. Shows findings, blockers, decisions, plans, and L2 manager reports. Shows hierarchy status (L1/L2/L3 messages). The orchestrator reads this to make informed decisions.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         sessionId: { type: 'string', description: 'Swarm session ID' },
         workstream: { type: 'string', description: 'Filter: exclude messages from this workstream (for anonymous reading)' },
-        types: { type: 'array', items: { type: 'string', enum: ['finding', 'blocker', 'decision', 'status'] }, description: 'Filter by message types' },
+        types: { type: 'array', items: { type: 'string', enum: ['finding', 'blocker', 'decision', 'status', 'plan', 'report'] }, description: 'Filter by message types' },
+        level: { type: 'string', enum: ['L1', 'L2', 'L3'], description: 'Filter by hierarchy level' },
       },
       required: ['sessionId'],
     },
@@ -184,6 +189,18 @@ const TOOLS = [
         description: { type: 'string', description: 'The description from the taskCall' },
       },
       required: ['sessionId', 'promptRef', 'subagent_type', 'description'],
+    },
+  },
+  {
+    name: 'swarm_throttle',
+    description: 'Adjust rate limiting on a live session. Use preset names or a custom number. Returns current rate config and available presets.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        concurrency: { type: 'string', description: 'Preset name ("conservative", "standard", "aggressive", "max", "unlimited") or a number. Omit to just view current config.' },
+      },
+      required: ['sessionId'],
     },
   },
 ];
@@ -216,6 +233,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmBoard(args as Parameters<typeof handleSwarmBoard>[0]);
     case 'swarm_dispatch':
       return handleSwarmDispatch(args as Parameters<typeof handleSwarmDispatch>[0]);
+    case 'swarm_throttle':
+      return handleSwarmThrottle(args as Parameters<typeof handleSwarmThrottle>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }
