@@ -179,7 +179,7 @@ const TOOLS = [
   },
   {
     name: 'swarm_dispatch',
-    description: 'Resolve a promptRef into full task() call parameters. Call this for each workstream from swarm_next instead of copying prompts manually. Returns { subagent_type, description, prompt } ready to pass directly to the task() tool.',
+    description: 'Resolve a promptRef into full task() call parameters with model fallback. If the assigned model is unavailable, auto-resolves to the nearest alternative. Returns { subagent_type, description, prompt, model } ready to pass to task().',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -187,6 +187,7 @@ const TOOLS = [
         promptRef: { type: 'string', description: 'The promptRef from a taskCall returned by swarm_next' },
         subagent_type: { type: 'string', description: 'The subagent_type from the taskCall' },
         description: { type: 'string', description: 'The description from the taskCall' },
+        model: { type: 'string', description: 'Model ID from the managerCall. Will be resolved through fallback if unavailable.' },
       },
       required: ['sessionId', 'promptRef', 'subagent_type', 'description'],
     },

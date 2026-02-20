@@ -10,6 +10,9 @@ import {
   TIER_PHASES,
   RATE_PRESETS,
   resolveRateLimit,
+  resolveModel,
+  resolveModelTracked,
+  getFallbackLog,
   createSession,
   getSession,
   getPhaseDefinition,
@@ -269,6 +272,7 @@ export function handleSwarmNext(args: {
         subagent_type: group.managerAgent,
         description: `${phaseDef.name} ${group.id} (${group.workerSlots.length} workers)`,
         promptRef,
+        model: group.managerModel, // resolved through fallback system
         groupId: group.id,
         workerCount: group.workerSlots.length,
         workstreams: group.workerSlots.map(ws => ws.workstreamId),
@@ -298,8 +302,8 @@ export function handleSwarmNext(args: {
       managerCalls,
       nextAction: [
         `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ''}. For EACH managerCall:`,
-        `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=managerCall.promptRef, subagent_type=managerCall.subagent_type, description=managerCall.description)`,
-        `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt)`,
+        `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=managerCall.promptRef, subagent_type=managerCall.subagent_type, description=managerCall.description, model=managerCall.model)`,
+        `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt, model=result.model)`,
         ``,
         `After dispatching, MONITOR the status board:`,
         `  bash("cat ${statusBoard} 2>/dev/null || echo 'No updates yet'")`,
@@ -857,6 +861,7 @@ export function handleSwarmModels(args: {
 
   if (action === 'set' && args.models && args.models.length > 0) {
     setAvailableModels(args.models);
+    const fallbacks = getFallbackLog();
     return ok({
       action: 'set',
       accepted: getAvailableModels().map((m) => m.id),
@@ -867,6 +872,7 @@ export function handleSwarmModels(args: {
         critic: [...criticPool],
         fast: [...fastPool],
       },
+      fallbackSystem: 'active — models not in accepted list will auto-resolve to nearest available alternative',
       message: `Model pools updated. ${getAvailableModels().length} models active.`,
     });
   }
@@ -880,6 +886,7 @@ export function handleSwarmModels(args: {
       critic: [...criticPool],
       fast: [...fastPool],
     },
+    recentFallbacks: getFallbackLog().slice(-10).map((f) => `${f.from} → ${f.to}`),
     total: getAvailableModels().length,
   });
 }
@@ -893,6 +900,7 @@ export function handleSwarmDispatch(args: {
   promptRef: string;
   subagent_type: string;
   description: string;
+  model?: string;
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
@@ -900,10 +908,19 @@ export function handleSwarmDispatch(args: {
   const prompt = getPrompt(session, args.promptRef);
   if (!prompt) return err(`Prompt ref not found: ${args.promptRef}. Call swarm_next first.`);
 
+  // Resolve model through fallback if provided
+  let modelInfo: { model?: string; fallback?: boolean; original?: string } = {};
+  if (args.model) {
+    const { model: resolved, wasFallback } = resolveModelTracked(args.model);
+    modelInfo = { model: resolved, fallback: wasFallback };
+    if (wasFallback) modelInfo.original = args.model;
+  }
+
   return ok({
     subagent_type: args.subagent_type,
     description: args.description,
     prompt,
+    ...modelInfo,
   });
 }
 

@@ -190,7 +190,104 @@ const ALL_MODELS: ModelEntry[] = [
   // Fast — explorers, merges, cheap parallel work
   { id: 'claude-haiku-4.5',      tier: 'fast',     provider: 'anthropic' },
   { id: 'gpt-4.1',               tier: 'fast',     provider: 'openai' },
+  { id: 'gpt-5.1-codex-mini',    tier: 'fast',     provider: 'openai' },
 ];
+
+// ── Model Fallback System ─────────────────────────────────────────────
+// When a model isn't available, auto-resolve to the best alternative.
+// Priority: same provider + same tier → same tier any provider → any available
+
+// Explicit fallback chains — first match wins
+const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
+  // Anthropic premium
+  'claude-opus-4.6':     ['claude-opus-4.5', 'claude-sonnet-4.6', 'claude-sonnet-4.5', 'gpt-5.1-codex-max', 'gpt-5.3-codex'],
+  'claude-opus-4.5':     ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-sonnet-4.6', 'gpt-5.1-codex-max', 'gpt-5.3-codex'],
+  // Anthropic standard
+  'claude-sonnet-4.6':   ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5.3-codex', 'gpt-5.2-codex'],
+  'claude-sonnet-4.5':   ['claude-sonnet-4.6', 'claude-sonnet-4', 'gpt-5.3-codex', 'gpt-5.2-codex'],
+  'claude-sonnet-4':     ['claude-sonnet-4.5', 'claude-sonnet-4.6', 'gpt-5.2-codex', 'gpt-5.1-codex'],
+  // OpenAI premium
+  'gpt-5.1-codex-max':   ['gpt-5.3-codex', 'gpt-5.2-codex', 'claude-opus-4.6', 'claude-opus-4.5'],
+  // OpenAI standard
+  'gpt-5.3-codex':       ['gpt-5.2-codex', 'gpt-5.1-codex', 'gpt-5.2', 'claude-sonnet-4.6', 'claude-sonnet-4.5'],
+  'gpt-5.2-codex':       ['gpt-5.3-codex', 'gpt-5.1-codex', 'gpt-5.2', 'claude-sonnet-4.5', 'claude-sonnet-4'],
+  'gpt-5.1-codex':       ['gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.1', 'claude-sonnet-4', 'claude-sonnet-4.5'],
+  'gpt-5.2':             ['gpt-5.1', 'gpt-5.2-codex', 'gpt-5.1-codex', 'claude-sonnet-4.5'],
+  'gpt-5.1':             ['gpt-5.2', 'gpt-5.1-codex', 'gpt-5.2-codex', 'claude-sonnet-4'],
+  // Google
+  'gemini-3-pro-preview': ['claude-sonnet-4.5', 'gpt-5.2-codex', 'claude-sonnet-4.6', 'gpt-5.3-codex'],
+  // Fast
+  'claude-haiku-4.5':    ['gpt-4.1', 'gpt-5.1-codex-mini', 'claude-sonnet-4', 'gpt-5.1'],
+  'gpt-4.1':             ['gpt-5.1-codex-mini', 'claude-haiku-4.5', 'gpt-5.1', 'claude-sonnet-4'],
+  'gpt-5.1-codex-mini':  ['gpt-4.1', 'claude-haiku-4.5', 'gpt-5.1', 'claude-sonnet-4'],
+};
+
+/**
+ * Resolve a model to an available one. If the requested model is available, return it.
+ * Otherwise walk the fallback chain, then try same-tier same-provider, same-tier any, then anything.
+ */
+export function resolveModel(requestedModel: string): string {
+  // If available, use it directly
+  if (availableModels.find((m) => m.id === requestedModel)) return requestedModel;
+
+  const requested = ALL_MODELS.find((m) => m.id === requestedModel);
+  const requestedTier = requested?.tier ?? 'standard';
+  const requestedProvider = requested?.provider ?? 'unknown';
+
+  // 1. Walk explicit fallback chain
+  const chain = MODEL_FALLBACK_CHAINS[requestedModel];
+  if (chain) {
+    for (const fallback of chain) {
+      if (availableModels.find((m) => m.id === fallback)) {
+        console.error(`[model-fallback] ${requestedModel} → ${fallback} (explicit chain)`);
+        return fallback;
+      }
+    }
+  }
+
+  // 2. Same tier + same provider
+  const sameTierProvider = availableModels.find(
+    (m) => m.tier === requestedTier && m.provider === requestedProvider
+  );
+  if (sameTierProvider) {
+    console.error(`[model-fallback] ${requestedModel} → ${sameTierProvider.id} (same tier+provider)`);
+    return sameTierProvider.id;
+  }
+
+  // 3. Same tier, any provider
+  const sameTier = availableModels.find((m) => m.tier === requestedTier);
+  if (sameTier) {
+    console.error(`[model-fallback] ${requestedModel} → ${sameTier.id} (same tier)`);
+    return sameTier.id;
+  }
+
+  // 4. Anything available
+  if (availableModels.length > 0) {
+    const fallback = availableModels[0].id;
+    console.error(`[model-fallback] ${requestedModel} → ${fallback} (last resort)`);
+    return fallback;
+  }
+
+  // Nothing available — return original and let it fail loud
+  console.error(`[model-fallback] ${requestedModel} — NO fallbacks available, returning as-is`);
+  return requestedModel;
+}
+
+// Track fallback events for diagnostics
+const fallbackLog: Array<{ from: string; to: string; reason: string; ts: Date }> = [];
+
+export function resolveModelTracked(requestedModel: string): { model: string; wasFallback: boolean } {
+  const resolved = resolveModel(requestedModel);
+  const wasFallback = resolved !== requestedModel;
+  if (wasFallback) {
+    fallbackLog.push({ from: requestedModel, to: resolved, reason: 'not_available', ts: new Date() });
+  }
+  return { model: resolved, wasFallback };
+}
+
+export function getFallbackLog(): typeof fallbackLog {
+  return fallbackLog;
+}
 
 // Available models — populated at startup, can be overridden via setAvailableModels()
 let availableModels: ModelEntry[] = [...ALL_MODELS];
@@ -655,8 +752,9 @@ export function getBlockedWorkstreams(session: SwarmSession): Workstream[] {
 // L1 orchestrator dispatches L2 managers (not L3 workers).
 // Each L2 manager gets a group of workstreams and spawns its own L3 workers.
 // Manager models differ from their worker models for provider diversity.
+// All model assignments go through resolveModel() for automatic fallback.
 
-const MANAGER_AGENTS: Array<{ agent: string; model: string; provider: string }> = [
+const MANAGER_AGENT_DEFS: Array<{ agent: string; model: string; provider: string }> = [
   { agent: 'manager-anthropic', model: 'claude-sonnet-4.5',    provider: 'anthropic' },
   { agent: 'manager-openai',    model: 'gpt-5.3-codex',        provider: 'openai' },
   { agent: 'manager-gemini',    model: 'gemini-3-pro-preview',  provider: 'google' },
@@ -664,18 +762,29 @@ const MANAGER_AGENTS: Array<{ agent: string; model: string; provider: string }> 
   { agent: 'manager-openai',    model: 'gpt-5.2-codex',        provider: 'openai' },
 ];
 
+/** Get a validated manager definition — resolves model with fallback */
+function getValidManagerDef(index: number): { agent: string; model: string; provider: string } {
+  const def = MANAGER_AGENT_DEFS[index % MANAGER_AGENT_DEFS.length];
+  const resolved = resolveModel(def.model);
+  const resolvedProvider = getModelProvider(resolved);
+  // If model fell back to different provider, update agent name to match
+  const agent = resolvedProvider !== 'unknown'
+    ? getManagerAgentName(resolved)
+    : def.agent;
+  return { agent, model: resolved, provider: resolvedProvider !== 'unknown' ? resolvedProvider : def.provider };
+}
+
 // Workers assigned to each manager should use DIFFERENT providers than the manager
 function getWorkerModelsForManager(managerProvider: string, workerCount: number): string[] {
-  // Pick workers from providers other than the manager's, cycling through for diversity
   const otherModels = coderPool.filter((m) => {
     const entry = availableModels.find((am) => am.id === m);
     return entry && entry.provider !== managerProvider;
   });
-  // If we run out of other-provider models, fall back to same-provider
   const allModels = otherModels.length > 0 ? otherModels : coderPool;
   const result: string[] = [];
   for (let i = 0; i < workerCount; i++) {
-    result.push(allModels[i % allModels.length]);
+    // Resolve each worker model through fallback system
+    result.push(resolveModel(allModels[i % allModels.length]));
   }
   return result;
 }
@@ -718,7 +827,7 @@ export function groupWorkstreams(session: SwarmSession): AgentGroup[] {
   const groups: AgentGroup[] = [];
 
   for (let g = 0; g < groupCount; g++) {
-    const managerDef = MANAGER_AGENTS[g % MANAGER_AGENTS.length];
+    const managerDef = getValidManagerDef(g);
     const startIdx = g * workersPerGroup;
     const endIdx = Math.min(startIdx + workersPerGroup, wsCount);
     const groupWorkstreams = session.workstreams.slice(startIdx, endIdx);
