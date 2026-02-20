@@ -9,7 +9,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
 [![OpenCode](https://img.shields.io/badge/OpenCode-Agent-4a90d9?logo=github)](https://github.com/anomalyco/opencode)
-[![Version](https://img.shields.io/badge/version-11.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-12.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -97,16 +97,31 @@ mkdir -p ~/.copilot/skills/swarm-orchestrator && \
 
 ## 🤖 Agent Architecture (OpenCode)
 
-The swarm agent **cannot write files, run bash, or read code**. It can ONLY call MCP tools and dispatch `task()` calls. This enforces the orchestration pattern — the swarm agent delegates ALL work to provider-specific workers via OpenCode's native Task tool.
+### 3-Level Hierarchy (arXiv:2602.16301 §3.2)
 
-| Agent | Role | Model | Tools |
-|-------|------|-------|-------|
-| **swarm** | Orchestrator | claude-sonnet-4 | MCP tools (8 tools) + `task()` dispatch |
-| **worker-anthropic** | Anthropic worker | claude-sonnet-4 | Full toolset |
-| **worker-openai** | OpenAI worker | gpt-5.2-codex | Full toolset |
-| **worker-gemini** | Google worker | gemini-3-pro-preview | Full toolset |
-| **worker-haiku** | Fast/merge worker | claude-haiku-4.5 | Full toolset |
-| **worker** | Default fallback | claude-sonnet-4 | Full toolset |
+The system implements a **3-level agent hierarchy** inspired by the paper's cooperative dynamics:
+
+```
+Level 1: Orchestrator (swarm)     → MCP protocol + task() dispatch only
+Level 2: Workers (worker-*)       → Full toolset + task() for sub-delegation
+Level 3: Sub-agents (worker-*)    → Full toolset, NO further task() dispatch (depth limit)
+```
+
+The orchestrator delegates to workers, and workers can further delegate to sub-agents when a workstream has multiple independent parts. This maps to the paper's mechanism:
+
+- **Diversity** (§3.1): Each level uses different providers (Anthropic/OpenAI/Gemini). Workers MUST dispatch to a different provider than themselves.
+- **Anonymous interaction** (§3.2): Sub-agents receive task context without knowing the parent worker's approach or identity.
+- **Mutual shaping** (§3.2): Workers synthesize sub-agent outputs, looking for convergence (agreement) and novel insights (disagreement).
+- **Depth limit**: Sub-agents cannot spawn further sub-agents — prevents runaway agent trees.
+
+| Agent | Level | Role | Model | Tools |
+|-------|-------|------|-------|-------|
+| **swarm** | 1 | Orchestrator | claude-sonnet-4 | MCP tools (8) + `task()` |
+| **worker-anthropic** | 2-3 | Anthropic worker | claude-sonnet-4 | Full toolset + `task()` |
+| **worker-openai** | 2-3 | OpenAI worker | gpt-5.2-codex | Full toolset + `task()` |
+| **worker-gemini** | 2-3 | Google worker | gemini-3-pro-preview | Full toolset + `task()` |
+| **worker-haiku** | 2-3 | Fast/merge worker | claude-haiku-4.5 | Full toolset + `task()` |
+| **worker** | 2-3 | Default fallback | claude-sonnet-4 | Full toolset + `task()` |
 
 ### Provider-Based Dynamic Routing via `subagent_type`
 
@@ -116,6 +131,16 @@ The MCP server assigns models to workstreams and returns a `subagent_type` field
 MCP returns subagent_type="worker-anthropic"  → task(subagent_type="worker-anthropic", ...)
 MCP returns subagent_type="worker-openai"     → task(subagent_type="worker-openai", ...)
 MCP returns subagent_type="worker-gemini"     → task(subagent_type="worker-gemini", ...)
+```
+
+### Cross-Provider Sub-Delegation
+
+Workers dispatch sub-agents to **different providers** for diversity:
+
+```
+worker-anthropic (Claude) → spawns worker-openai (GPT) + worker-gemini (Gemini)
+worker-openai (GPT)       → spawns worker-anthropic (Claude) + worker-gemini (Gemini)
+worker-gemini (Gemini)    → spawns worker-anthropic (Claude) + worker-openai (GPT)
 ```
 
 ---
@@ -792,6 +817,15 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v12.0 (2026-02-20)
+- **3-level agent hierarchy:** Orchestrator → Workers → Sub-agents (arXiv:2602.16301 §3.2)
+- Workers now have `task: true` — can spawn sub-agents for complex subtasks
+- **Cross-provider diversity enforced:** Workers must dispatch to DIFFERENT providers than themselves
+- **Anonymous sub-delegation:** Sub-agents receive task context without parent worker's approach/identity
+- **Depth limit = 3:** Sub-agents cannot spawn further sub-agents (prevents runaway trees)
+- Workers synthesize sub-agent outputs using paper's convergence/divergence analysis
+- Mapped to paper mechanism: diversity → in-context inference → mutual shaping → cooperation
 
 ### v11.0 (2026-02-20)
 - **OpenCode alignment audit:** 5 critical fixes for native agent system compatibility

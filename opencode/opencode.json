@@ -1,0 +1,231 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "github-copilot/claude-sonnet-4",
+  "permission": {
+    "read": "allow",
+    "edit": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": "allow",
+    "task": "allow",
+    "external_directory": "allow",
+    "todowrite": "allow",
+    "todoread": "allow",
+    "question": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "codesearch": "allow",
+    "lsp": "allow",
+    "doom_loop": "allow"
+  },
+  "agent": {
+    "net": {
+      "name": "net",
+      "description": "Network infrastructure agent. Use for: Nginx configs, K8s networking, service routing, port checks, DNS, SSL/TLS, load balancers, ingress controllers. Spawns with full bash/SSH access.",
+      "mode": "subagent",
+      "prompt": "You are NET_AGENT, a network infrastructure specialist. You have full sudo access. Execute commands directly - do not describe what you would do. Use curl, kubectl, nginx -t, ss, netstat. Fix issues immediately. Return results of your commands."
+    },
+    "dev": {
+      "name": "dev",
+      "description": "Development agent. Use for: React/frontend builds, UI components, code modifications, API integrations, database queries. Full code read/write access.",
+      "mode": "subagent",
+      "prompt": "You are DEV_AGENT, a full-stack developer. Write and modify code directly. Do not describe - execute. Build UIs, fix bugs, write tests. Return the code you wrote or modified."
+    },
+    "sec": {
+      "name": "sec",
+      "description": "Security agent. Use for: Auth configs, TOTP/2FA, secrets management, access controls, certificate management, security audits, firewall rules.",
+      "mode": "subagent",
+      "prompt": "You are SEC_AGENT, a security specialist. You have full access to modify auth configs, manage secrets, configure firewalls. Execute security tasks directly. Return verification of changes made."
+    },
+    "sre": {
+      "name": "sre",
+      "description": "SRE/DevOps agent. Use for: K8s deployments, container orchestration, monitoring, logging, CI/CD, infrastructure as code. Full kubectl and helm access.",
+      "mode": "subagent",
+      "prompt": "You are SRE_AGENT, a site reliability engineer. You have full cluster access. Execute kubectl, helm, docker commands directly. Fix infrastructure issues immediately. Return command outputs."
+    },
+    "worker": {
+      "name": "worker",
+      "description": "Default fallback worker. Use @worker-anthropic, @worker-openai, @worker-gemini for provider-specific dispatch.",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.3,
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-anthropic": {
+      "name": "worker-anthropic",
+      "description": "Anthropic provider worker \u2014 routes here when provider=anthropic",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-anthropic.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-openai": {
+      "name": "worker-openai",
+      "description": "OpenAI provider worker \u2014 routes here when provider=openai",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.2-codex",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-openai.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-gemini": {
+      "name": "worker-gemini",
+      "description": "Google provider worker \u2014 routes here when provider=google",
+      "mode": "subagent",
+      "model": "github-copilot/gemini-3-pro-preview",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-gemini.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-haiku": {
+      "name": "worker-haiku",
+      "description": "Fast worker \u2014 merge phases and lightweight tasks",
+      "mode": "subagent",
+      "model": "github-copilot/claude-haiku-4.5",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/worker-haiku.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "swarm": {
+      "name": "swarm",
+      "description": "Swarm orchestrator - delegates through Open Swarm MCP. Cannot edit files directly.",
+      "mode": "primary",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.1,
+      "prompt": "{file:~/.config/opencode/agents/swarm.md}",
+      "tools": {
+        "write": false,
+        "edit": false,
+        "patch": false,
+        "bash": true,
+        "task": true,
+        "glob": false,
+        "grep": false,
+        "ls": false,
+        "view": false,
+        "fetch": false,
+        "diagnostics": false,
+        "swarm_init": true,
+        "swarm_next": true,
+        "swarm_submit": true,
+        "swarm_merge": true,
+        "swarm_status": true,
+        "swarm_gate": true,
+        "swarm_collect": true,
+        "swarm_models": true
+      }
+    }
+  },
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen2.5-coder:32b": {
+          "name": "qwen2.5-coder:32b",
+          "autoCompactTokenLimit": 19200
+        },
+        "qwen2.5:72b": {
+          "name": "qwen2.5:72b",
+          "description": "72B model",
+          "autoCompactTokenLimit": 9800
+        },
+        "kimi-k2.5:cloud": {
+          "name": "kimi-k2.5:cloud",
+          "autoCompactTokenLimit": 19200
+        }
+      }
+    }
+  },
+  "compaction": {
+    "enabled": true,
+    "threshold": 0.6
+  },
+  "mcp": {
+    "mcp-marketplace": {
+      "type": "local",
+      "command": [
+        "node",
+        "/Users/timothy.schwarz/.config/opencode/mcps/mcp-marketplace/node_modules/opencode-mcp-marketplace/dist/index.js"
+      ]
+    },
+    "open-swarm": {
+      "type": "remote",
+      "url": "http://127.0.0.1:38546/mcp"
+    },
+    "mcpu": {
+      "type": "local",
+      "command": [
+        "mcpu-mcp",
+        "--auto-disconnect",
+        "--idle-timeout",
+        "10"
+      ]
+    }
+  }
+}
