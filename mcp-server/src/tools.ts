@@ -14,6 +14,7 @@ import {
   getCoderModel,
   getAvailableModels,
   setAvailableModels,
+  getModelProvider,
   premiumPool,
   coderPool,
   criticPool,
@@ -46,9 +47,11 @@ function buildTaskCall(
   prompt: string,
   model?: string,
 ) {
+  const resolvedModel = model ?? phaseDef.model;
   return {
     agent_type: phaseDef.agentType,
-    model: model ?? phaseDef.model,
+    model: resolvedModel,
+    provider: getModelProvider(resolvedModel),
     mode: phaseDef.mode,
     description,
     prompt,
@@ -57,6 +60,46 @@ function buildTaskCall(
 
 function workstreamCount(session: { workstreams: { id: string }[] }): number {
   return Math.max(session.workstreams.length, 2);
+}
+
+// ── Convergence Metrics (arXiv:2602.16301) ────────────────────────────
+
+function computeConvergence(
+  session: SwarmSession,
+  currentRound: number,
+  currentScores: Array<{ workstream: string; score: number }>,
+) {
+  const avgCurrent = currentScores.reduce((s, c) => s + c.score, 0) / currentScores.length;
+
+  // Find previous round scores
+  const prevRound = currentRound - 1;
+  const prevScores = session.rounds.filter((r) => r.round === prevRound);
+  const avgPrev = prevScores.length > 0
+    ? prevScores.reduce((s, r) => s + r.score, 0) / prevScores.length
+    : 0;
+
+  const delta = prevScores.length > 0 ? avgCurrent - avgPrev : avgCurrent;
+  const stalling = prevScores.length > 0 && Math.abs(delta) < 0.5;
+
+  // Collect all round averages for trend
+  const roundAvgs: Array<{ round: number; avg: number }> = [];
+  const allRounds = new Set(session.rounds.map((r) => r.round));
+  for (const r of allRounds) {
+    const scores = session.rounds.filter((s) => s.round === r);
+    roundAvgs.push({ round: r, avg: scores.reduce((s, c) => s + c.score, 0) / scores.length });
+  }
+  roundAvgs.push({ round: currentRound, avg: avgCurrent });
+  roundAvgs.sort((a, b) => a.round - b.round);
+
+  return {
+    currentAvg: Math.round(avgCurrent * 100) / 100,
+    previousAvg: prevScores.length > 0 ? Math.round(avgPrev * 100) / 100 : null,
+    delta: Math.round(delta * 100) / 100,
+    stalling,
+    stallingWarning: stalling ? 'Quality improvement < 0.5 across rounds. Consider changing approach or models.' : undefined,
+    trend: roundAvgs,
+    totalRounds: currentRound,
+  };
 }
 
 // ── swarm_init ────────────────────────────────────────────────────────
@@ -107,6 +150,22 @@ export function handleSwarmNext(args: {
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  // Auto-advance past completed phases
+  while (
+    session.currentPhaseIndex < session.phases.length &&
+    session.phases[session.currentPhaseIndex].status === 'done'
+  ) {
+    const nextIdx = session.currentPhaseIndex + 1;
+    if (nextIdx >= session.phases.length) {
+      return ok({
+        sessionId: session.id,
+        complete: true,
+        nextAction: 'All phases complete. Swarm finished.',
+      });
+    }
+    session.currentPhaseIndex = nextIdx;
+  }
 
   const phaseIdx = session.currentPhaseIndex;
   const phaseDef = getPhaseDefinition(session);
@@ -422,8 +481,16 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
       description: ws.description,
       score: ws.score,
       model: ws.modelAssigned,
+      provider: getModelProvider(ws.modelAssigned),
     })),
     historySummary,
+    convergence: session.rounds.length > 0 ? (() => {
+      const latestRound = Math.max(...session.rounds.map((r) => r.round));
+      const latestScores = session.rounds
+        .filter((r) => r.round === latestRound)
+        .map((r) => ({ workstream: r.workstream, score: r.score }));
+      return computeConvergence(session, latestRound, latestScores);
+    })() : null,
     nextAction,
   });
 }
@@ -465,6 +532,9 @@ export function handleSwarmGate(args: {
     });
   }
 
+  // Compute convergence metrics
+  const convergence = computeConvergence(session, currentRound, args.scores);
+
   // Evaluate gate
   const failing = args.scores.filter((s) => s.score < 7);
   const allPass = failing.length === 0;
@@ -477,6 +547,7 @@ export function handleSwarmGate(args: {
       sessionId: session.id,
       round: currentRound,
       scores: args.scores,
+      convergence,
       nextAction: `All scores ≥ 7. Call swarm_next with sessionId "${session.id}" to continue.`,
     });
   }

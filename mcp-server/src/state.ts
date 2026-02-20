@@ -175,6 +175,12 @@ export function getSynthesizerModel(): string {
 // Export pools for introspection
 export { premiumPool, coderPool, criticPool, fastPool };
 
+// Look up provider for a model ID
+export function getModelProvider(modelId: string): string {
+  const entry = availableModels.find((m) => m.id === modelId);
+  return entry?.provider ?? 'unknown';
+}
+
 // ── Phase Definitions per Tier ─────────────────────────────────────────
 
 function def(
