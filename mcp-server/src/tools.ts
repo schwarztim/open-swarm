@@ -51,11 +51,9 @@ function buildTaskCall(
   model?: string,
 ) {
   const resolvedModel = model ?? phaseDef.model;
+  const subagentType = getWorkerAgentName(resolvedModel);
   return {
-    agent_type: phaseDef.agentType,
-    model: resolvedModel,
-    provider: getModelProvider(resolvedModel),
-    mode: phaseDef.mode,
+    subagent_type: subagentType,
     description,
     prompt,
   };
@@ -204,7 +202,7 @@ export function handleSwarmNext(args: {
       parallel: true,
       workstreamCount: wsCount,
       taskCalls,
-      nextAction: `Launch all ${wsCount} task() calls in parallel, then call swarm_submit for each output.`,
+      nextAction: `Launch all ${wsCount} task() calls simultaneously. For each taskCall, invoke the Task tool with: task(subagent_type=taskCall.subagent_type, description=taskCall.description, prompt=taskCall.prompt). Then call swarm_submit for each output.`,
     });
   }
 
@@ -220,7 +218,7 @@ export function handleSwarmNext(args: {
     phaseIndex: phaseIdx,
     parallel: false,
     taskCall,
-    nextAction: `Execute this task() call, then call swarm_submit with the output.`,
+    nextAction: `Execute the Task tool with: task(subagent_type=taskCall.subagent_type, description=taskCall.description, prompt=taskCall.prompt). Then call swarm_submit with the output.`,
   });
 }
 
