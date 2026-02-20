@@ -16,6 +16,7 @@ import {
   handleSwarmCollect,
   handleSwarmRelay,
   handleSwarmBoard,
+  handleSwarmDispatch,
 } from './tools.js';
 
 const server = new Server(
@@ -171,6 +172,20 @@ const TOOLS = [
       required: ['sessionId'],
     },
   },
+  {
+    name: 'swarm_dispatch',
+    description: 'Resolve a promptRef into full task() call parameters. Call this for each workstream from swarm_next instead of copying prompts manually. Returns { subagent_type, description, prompt } ready to pass directly to the task() tool.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        promptRef: { type: 'string', description: 'The promptRef from a taskCall returned by swarm_next' },
+        subagent_type: { type: 'string', description: 'The subagent_type from the taskCall' },
+        description: { type: 'string', description: 'The description from the taskCall' },
+      },
+      required: ['sessionId', 'promptRef', 'subagent_type', 'description'],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -199,6 +214,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmRelay(args as Parameters<typeof handleSwarmRelay>[0]);
     case 'swarm_board':
       return handleSwarmBoard(args as Parameters<typeof handleSwarmBoard>[0]);
+    case 'swarm_dispatch':
+      return handleSwarmDispatch(args as Parameters<typeof handleSwarmDispatch>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }

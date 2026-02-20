@@ -17,6 +17,8 @@ import {
   getBlockedWorkstreams,
   postToBoard,
   readBoard,
+  storePrompt,
+  getPrompt,
   getCoderModel,
   getAvailableModels,
   setAvailableModels,
@@ -51,6 +53,7 @@ function getWorkerAgentName(modelId: string): string {
 }
 
 function buildTaskCall(
+  session: SwarmSession,
   phaseDef: PhaseDefinition,
   description: string,
   prompt: string,
@@ -58,10 +61,11 @@ function buildTaskCall(
 ) {
   const resolvedModel = model ?? phaseDef.model;
   const subagentType = getWorkerAgentName(resolvedModel);
+  const promptRef = storePrompt(session, prompt);
   return {
     subagent_type: subagentType,
     description,
-    prompt,
+    promptRef,
   };
 }
 
@@ -201,7 +205,7 @@ export function handleSwarmNext(args: {
       const boardCtx = ws ? buildBoardContext(session, ws.id) : '';
       const prompt = `${history}${boardCtx}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream.`;
       const desc = `${phaseDef.name} workstream ${i}`;
-      taskCalls.push(buildTaskCall(phaseDef, desc, prompt, getCoderModel(i)));
+      taskCalls.push(buildTaskCall(session, phaseDef, desc, prompt, getCoderModel(i)));
     }
     phase.status = 'in_progress';
     return ok({
@@ -211,14 +215,14 @@ export function handleSwarmNext(args: {
       parallel: true,
       workstreamCount: wsCount,
       taskCalls,
-      nextAction: `Launch all ${wsCount} task() calls simultaneously. For each taskCall, invoke the Task tool with: task(subagent_type=taskCall.subagent_type, description=taskCall.description, prompt=taskCall.prompt). Then call swarm_submit for each output.`,
+      nextAction: `Launch all ${wsCount} task() calls simultaneously. For each taskCall, call swarm_dispatch with sessionId="${session.id}" and promptRef=taskCall.promptRef, subagent_type=taskCall.subagent_type, description=taskCall.description. Then call swarm_submit for each output.`,
     });
   }
 
   // Single task
   const prompt = `${history}\n\nExecute the "${phaseDef.name}" phase for this task.`;
   const desc = `${phaseDef.name} phase`;
-  const taskCall = buildTaskCall(phaseDef, desc, prompt);
+  const taskCall = buildTaskCall(session, phaseDef, desc, prompt);
   phase.status = 'in_progress';
 
   return ok({
@@ -227,7 +231,7 @@ export function handleSwarmNext(args: {
     phaseIndex: phaseIdx,
     parallel: false,
     taskCall,
-    nextAction: `Execute the Task tool with: task(subagent_type=taskCall.subagent_type, description=taskCall.description, prompt=taskCall.prompt). Then call swarm_submit with the output.`,
+    nextAction: `Call swarm_dispatch with sessionId="${session.id}" and promptRef=taskCall.promptRef, subagent_type=taskCall.subagent_type, description=taskCall.description. Then call swarm_submit with the output.`,
   });
 }
 
@@ -458,6 +462,7 @@ export function handleSwarmMerge(args: {
   session.currentPhaseIndex = phaseIdx;
 
   const taskCall = buildTaskCall(
+    session,
     mergeDef,
     `${mergeDef.name} phase`,
     mergePrompt,
@@ -468,7 +473,7 @@ export function handleSwarmMerge(args: {
     phase: mergeDef.name,
     phaseIndex: phaseIdx,
     taskCall,
-    nextAction: `Execute this merge task() call, then call swarm_submit with the merged result.`,
+    nextAction: `Call swarm_dispatch with sessionId="${session.id}" and promptRef=taskCall.promptRef, subagent_type=taskCall.subagent_type, description=taskCall.description. Then call swarm_submit with the merged result.`,
   });
 }
 
@@ -746,6 +751,29 @@ export function handleSwarmModels(args: {
       fast: [...fastPool],
     },
     total: getAvailableModels().length,
+  });
+}
+
+// ── swarm_dispatch ─────────────────────────────────────────────────────
+// Resolves a promptRef into the actual task() call parameters.
+// The orchestrator calls this per workstream instead of re-serializing huge prompts.
+
+export function handleSwarmDispatch(args: {
+  sessionId: string;
+  promptRef: string;
+  subagent_type: string;
+  description: string;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  const prompt = getPrompt(session, args.promptRef);
+  if (!prompt) return err(`Prompt ref not found: ${args.promptRef}. Call swarm_next first.`);
+
+  return ok({
+    subagent_type: args.subagent_type,
+    description: args.description,
+    prompt,
   });
 }
 

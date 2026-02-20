@@ -65,6 +65,7 @@ export interface SwarmSession {
   history: HistoryEntry[];
   rounds: RoundRecord[];
   board: BoardMessage[]; // programmatic message board
+  promptStore: Map<string, string>; // server-side prompt storage to avoid LLM output truncation
   maxLoops: number;
   createdAt: Date;
   executionMode: ExecutionMode;
@@ -295,6 +296,7 @@ export function createSession(tier: Tier, task: string, executionMode: Execution
     history: [],
     rounds: [],
     board: [],
+    promptStore: new Map(),
     maxLoops: 3,
     createdAt: new Date(),
     executionMode,
@@ -465,6 +467,22 @@ export function stripIdentity(text: string): string {
     .replace(/agent[_-]?\d+/gi, 'a contributor')
     .replace(/workstream[_-]?\d+/gi, 'workstream')
     .replace(/ws-\d+/gi, 'workstream');
+}
+
+// ── Prompt Store ──────────────────────────────────────────────────────
+// Store prompts server-side so the orchestrator LLM doesn't have to
+// re-serialize massive prompts in its tool call output (causes truncation).
+
+let promptCounter = 0;
+
+export function storePrompt(session: SwarmSession, prompt: string): string {
+  const ref = `prompt-${++promptCounter}`;
+  session.promptStore.set(ref, prompt);
+  return ref;
+}
+
+export function getPrompt(session: SwarmSession, ref: string): string | undefined {
+  return session.promptStore.get(ref);
 }
 
 // ── Board Operations ──────────────────────────────────────────────────
