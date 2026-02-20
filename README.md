@@ -2,13 +2,14 @@
 
 # 🐝 Open Swarm
 
-### MCP Server + Copilot CLI Skill for Emergent Multi-Agent Cooperation
+### MCP Server + OpenCode Agent for Emergent Multi-Agent Cooperation
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-Skill-8957e5?logo=github)](https://docs.github.com/copilot)
 [![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
-[![Version](https://img.shields.io/badge/version-10.0-blue.svg)](#changelog)
+[![OpenCode](https://img.shields.io/badge/OpenCode-Agent-4a90d9?logo=github)](https://github.com/anomalyco/opencode)
+[![Version](https://img.shields.io/badge/version-11.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -96,25 +97,25 @@ mkdir -p ~/.copilot/skills/swarm-orchestrator && \
 
 ## 🤖 Agent Architecture (OpenCode)
 
-The swarm agent **cannot write files, run bash, or read code**. It can ONLY call MCP tools. This enforces the orchestration pattern — the swarm agent delegates ALL work to provider-specific workers.
+The swarm agent **cannot write files, run bash, or read code**. It can ONLY call MCP tools and dispatch `task()` calls. This enforces the orchestration pattern — the swarm agent delegates ALL work to provider-specific workers via OpenCode's native Task tool.
 
 | Agent | Role | Model | Tools |
 |-------|------|-------|-------|
-| **swarm** | Orchestrator | claude-sonnet-4 | MCP tools only (8 tools) + bash (subprocess spawning) |
+| **swarm** | Orchestrator | claude-sonnet-4 | MCP tools (8 tools) + `task()` dispatch |
 | **worker-anthropic** | Anthropic worker | claude-sonnet-4 | Full toolset |
 | **worker-openai** | OpenAI worker | gpt-5.2-codex | Full toolset |
 | **worker-gemini** | Google worker | gemini-3-pro-preview | Full toolset |
 | **worker-haiku** | Fast/merge worker | claude-haiku-4.5 | Full toolset |
 | **worker** | Default fallback | claude-sonnet-4 | Full toolset |
 
-### Provider-Based Dynamic Routing
+### Provider-Based Dynamic Routing via `subagent_type`
 
-The MCP server assigns models to workstreams and returns a `provider` field. The swarm agent routes to the matching `@worker-*` agent. **No model names are hardcoded** — when new models are added to any provider, they auto-route without config changes.
+The MCP server assigns models to workstreams and returns a `subagent_type` field matching an OpenCode worker agent name. The swarm agent passes this directly to `task(subagent_type=...)`. **No model names are hardcoded** — when new models are added to any provider, they auto-route without config changes.
 
 ```
-MCP returns provider="anthropic"  → @worker-anthropic
-MCP returns provider="openai"     → @worker-openai
-MCP returns provider="google"     → @worker-gemini
+MCP returns subagent_type="worker-anthropic"  → task(subagent_type="worker-anthropic", ...)
+MCP returns subagent_type="worker-openai"     → task(subagent_type="worker-openai", ...)
+MCP returns subagent_type="worker-gemini"     → task(subagent_type="worker-gemini", ...)
 ```
 
 ---
@@ -399,10 +400,19 @@ sequenceDiagram
 
 ## 🚀 Execution Modes
 
-### Task Mode (default)
-The swarm agent dispatches work to `@worker-*` subagents via OpenCode's `task()` tool. Workers run sequentially within the orchestrator's context.
+### Task Mode (default, recommended)
+The swarm agent dispatches work to `worker-*` subagents via OpenCode's native `task()` tool. Each `task()` call creates a child session with its own context window, linked to the parent via `parentID`. The orchestrator can dispatch multiple `task()` calls in a single turn for parallel execution, or use OpenCode's `batch` tool for guaranteed parallelism.
 
-### Subprocess Mode (unleashed)
+```
+# What task mode does under the hood:
+task(subagent_type="worker-anthropic", description="Implement auth module", prompt="...")
+task(subagent_type="worker-openai", description="Write API routes", prompt="...")
+task(subagent_type="worker-gemini", description="Create test suite", prompt="...")
+```
+
+**Key advantage:** Sessions are navigable (Leader+Right/Left), `task_id` enables session resumption, and the model is determined by the worker agent's config — not hardcoded per call.
+
+### Subprocess Mode (unleashed/advanced)
 The swarm agent spawns **independent `opencode run` processes** via bash. Each process runs in its own terminal with its own context window. True OS-level parallelism — your CPU will feel it.
 
 ```bash
@@ -782,6 +792,17 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v11.0 (2026-02-20)
+- **OpenCode alignment audit:** 5 critical fixes for native agent system compatibility
+- `agent_type` → `subagent_type` — matches OpenCode's Task tool parameter name
+- Removed per-call `model` param — model lives on agent config, not per-dispatch
+- **Enabled `task: true`** on swarm agent — was completely unable to dispatch subagents before!
+- Provider routing via `subagent_type` = worker agent name (not `@mention` syntax)
+- `nextAction` strings now include exact `task(subagent_type=..., ...)` call syntax
+- **Task mode as default execution:** Swarm agent uses `task()` for subagent dispatch instead of subprocess spawning
+- OpenCode `batch` tool documented for guaranteed parallel `task()` execution
+- First successful live swarm run with proper orchestrator → task() → worker pipeline
 
 ### v10.0 (2026-02-20)
 - **Unleashed tier:** 32 parallel workstreams — maximum throughput mode
