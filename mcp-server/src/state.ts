@@ -423,3 +423,20 @@ export function buildAnonymousHistory(session: SwarmSession, forWorkstream?: str
 
   return lines.join('\n');
 }
+
+// ── Identity Stripping ────────────────────────────────────────────────
+
+export function stripIdentity(text: string): string {
+  if (!text) return '';
+  // Remove ANSI codes
+  const noAnsi = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  // Remove model names
+  return noAnsi
+    .replace(/claude[-\s]?\w+/gi, 'a contributor')
+    .replace(/gpt[-\s]?\w+/gi, 'a contributor')
+    .replace(/opus|sonnet|haiku|codex/gi, 'contributor')
+    .replace(/gemini[-\s]?\w+/gi, 'a contributor')
+    .replace(/agent[_-]?\d+/gi, 'a contributor')
+    .replace(/workstream[_-]?\d+/gi, 'workstream')
+    .replace(/ws-\d+/gi, 'workstream');
+}

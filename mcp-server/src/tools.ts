@@ -19,6 +19,7 @@ import {
   coderPool,
   criticPool,
   fastPool,
+  stripIdentity,
 } from './state.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -33,12 +34,14 @@ function err(message: string): ToolResult {
   return ok({ error: message });
 }
 
-function stripIdentity(text: string): string {
-  return text
-    .replace(/claude[-\s]?\w+/gi, 'a contributor')
-    .replace(/gpt[-\s]?\w+/gi, 'a contributor')
-    .replace(/opus|sonnet|haiku|codex/gi, 'contributor')
-    .replace(/agent[_-]?\d+/gi, 'a contributor');
+function getWorkerAgentName(modelId: string): string {
+  const provider = getModelProvider(modelId);
+  switch (provider) {
+    case 'anthropic': return 'worker-anthropic';
+    case 'openai': return 'worker-openai';
+    case 'google': return 'worker-gemini';
+    default: return 'worker';
+  }
 }
 
 function buildTaskCall(
@@ -234,6 +237,7 @@ function handleSwarmNextSubprocess(
     for (let i = 0; i < wsCount; i++) {
       const ws = session.workstreams[i];
       const model = getCoderModel(i);
+      const agentName = getWorkerAgentName(model);
       const wsContext = ws
         ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(', ') || 'TBD'}`
         : `\nWorkstream: ws-${i}`;
@@ -252,11 +256,12 @@ function handleSwarmNextSubprocess(
       spawnCommands.push({
         workstream: `ws-${i}`,
         model,
+        agent: agentName,
         promptFile,
         outputFile,
         logFile,
         prompt,
-        command: `mkdir -p ${outputDir} && cat > ${promptFile} << 'SWARM_PROMPT_EOF'\n${prompt}\nSWARM_PROMPT_EOF\ncopilot -p "$(cat ${promptFile})" --model ${model} --allow-all --autopilot -s --share ${outputFile} 2>&1 | tee ${logFile}`,
+        command: `mkdir -p ${outputDir} && cat > ${promptFile} << 'SWARM_PROMPT_EOF'\n${prompt}\nSWARM_PROMPT_EOF\nopencode run "$(cat ${promptFile})" --agent ${agentName} --dangerously-skip-permissions > ${outputFile} 2>&1`,
       });
     }
 
@@ -269,12 +274,13 @@ function handleSwarmNextSubprocess(
       executionMode: 'subprocess',
       workstreamCount: wsCount,
       spawnCommands,
-      nextAction: `Create output directory: mkdir -p ${outputDir}\nThen for EACH spawn command:\n1. Write the prompt file\n2. Execute the command via bash(mode="async", detach=true)\nWhen ALL processes complete (check log files for completion), call swarm_collect with the outputs.`,
+      nextAction: `Create output directory: mkdir -p ${outputDir}\nThen for EACH spawn command:\n1. Write the prompt file\n2. Execute the command via bash(mode="async", detach=true)\nWhen ALL processes complete (check log files/output files), call swarm_collect with the outputs.`,
     });
   }
 
   // Single subprocess
   const model = phaseDef.model;
+  const agentName = getWorkerAgentName(model);
   const prompt = `${history}\n\nExecute the "${phaseDef.name}" phase for this task. You are running as an independent subprocess — complete your work fully.`;
   const promptFile = `${outputDir}/phase-${phaseIdx}-prompt.md`;
   const outputFile = `${outputDir}/phase-${phaseIdx}-output.md`;
@@ -289,11 +295,12 @@ function handleSwarmNextSubprocess(
     executionMode: 'subprocess',
     spawnCommand: {
       model,
+      agent: agentName,
       promptFile,
       outputFile,
       logFile,
       prompt,
-      command: `mkdir -p ${outputDir} && cat > ${promptFile} << 'SWARM_PROMPT_EOF'\n${prompt}\nSWARM_PROMPT_EOF\ncopilot -p "$(cat ${promptFile})" --model ${model} --allow-all --autopilot -s --share ${outputFile} 2>&1 | tee ${logFile}`,
+      command: `mkdir -p ${outputDir} && cat > ${promptFile} << 'SWARM_PROMPT_EOF'\n${prompt}\nSWARM_PROMPT_EOF\nopencode run "$(cat ${promptFile})" --agent ${agentName} --dangerously-skip-permissions > ${outputFile} 2>&1`,
     },
     nextAction: `Execute the command via bash, wait for completion, then call swarm_collect with the output.`,
   });
@@ -395,11 +402,29 @@ export function handleSwarmMerge(args: {
     .map((o, i) => `=== Contributor ${i + 1} ===\n${stripIdentity(o)}`)
     .join('\n\n');
 
+  // Compute convergence to guide synthesis
+  const currentRound = session.rounds.length > 0
+    ? Math.max(...session.rounds.map((r) => r.round))
+    : 0;
+  const currentScores = session.rounds.filter(r => r.round === currentRound);
+  const convergence = computeConvergence(session, currentRound, currentScores);
+
+  let guidance = '';
+  if (convergence.stalling) {
+    guidance = 'CRITICAL: The swarm is stalling (low convergence). Do NOT just average the contributions. Look for novel, outlier ideas in the contributions that might break the deadlock. Be bold in your synthesis.';
+  } else if (convergence.delta > 0.5) {
+    guidance = 'The swarm is converging well. Synthesize the contributions to refine the details and polish the solution. Focus on consistency.';
+  } else {
+    guidance = 'Synthesize the contributions. Look for the strongest elements of each approach.';
+  }
+
   const mergePrompt = [
     buildAnonymousHistory(session),
     '',
     '--- MERGE TASK ---',
     'Multiple contributors have completed parallel work. Synthesize their outputs.',
+    `Convergence Status: ${convergence.delta > 0 ? 'Improving' : 'Stable'} (Delta: ${convergence.delta})`,
+    guidance,
     '',
     contributorOutputs,
     '',
