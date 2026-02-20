@@ -9,7 +9,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
 [![OpenCode](https://img.shields.io/badge/OpenCode-Agent-4a90d9?logo=github)](https://github.com/anomalyco/opencode)
-[![Version](https://img.shields.io/badge/version-12.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-13.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -471,37 +471,72 @@ When **converging well** (delta > 0.5):
 
 ---
 
-## 🔗 Cross-Communication (Paper §3.2)
+## 🔗 Programmatic Communication Layer (v13.0)
 
 The paper's core finding: **cooperation emerges through mutual observation and adaptation, not isolation**.
 
-Cross-communication isn't about agents chatting — it's about agents **seeing each other's outputs
-in the anonymous history** and adapting their behavior. This is what drives quality:
+Previous versions used prompt instructions to coordinate agents. **v13.0 makes communication programmatic** — the MCP server manages all inter-agent communication through two new tools:
+
+### The Board — `swarm_relay` + `swarm_board`
 
 ```
-Traditional (broken):     Coder A → isolated output
-                          Coder B → isolated output
-                          ↳ No awareness of each other → conflicts, duplication
-
-With cross-communication: Coder A builds, sees "Other workstreams: {B's scope, C's scope}"
-                          Coder B builds, sees "Other workstreams: {A's scope, C's scope}"
-                          Critic reviews ALL → feeds critique + others' code back
-                          Coder A revises, now sees B's actual code + critique
-                          ↳ Mutual awareness → shared patterns, no conflicts
+┌────────────────────────────────────────────────────────────────┐
+│                    ORCHESTRATOR (Premium Model)                 │
+│   Makes hard decisions. Always presented facts, never noise.   │
+│                                                                │
+│   ┌──── swarm_relay ────┐       ┌──── swarm_board ────┐       │
+│   │ Post findings from  │       │ Read all findings,  │       │
+│   │ completed workers   │       │ blockers, decisions  │       │
+│   └─────────┬───────────┘       └─────────┬───────────┘       │
+│             │                             │                    │
+│     ┌───────▼─────────────────────────────▼──────────┐        │
+│     │           MCP SERVER STATE (board[])            │        │
+│     │  - Strips identity (arXiv §3.2 anonymity)      │        │
+│     │  - Auto-injects into swarm_next prompts        │        │
+│     │  - Tracks blockers & dependencies              │        │
+│     │  - ws-0 NEVER sees its own findings            │        │
+│     └───────┬────────────┬────────────┬──────────────┘        │
+│             │            │            │                        │
+│        ┌────▼───┐  ┌─────▼──┐  ┌─────▼──┐                    │
+│        │ ws-0   │  │ ws-1   │  │ ws-2   │  Worker Agents      │
+│        │sees 1,2│  │sees 0,2│  │sees 0,1│  (get board ctx)    │
+│        └────────┘  └────────┘  └────────┘                    │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-**Where cross-communication is applied:**
+### How It Works (Programmatic, Not Prompt-Based)
 
-| Phase | Cross-Communication | Why |
-|-------|-------------------|-----|
-| Parallel coders | Each prompt includes other workstream summaries | Avoids duplication, shares patterns |
-| Review feedback loop | Critique includes other coders' outputs | Coder adapts knowing full picture |
-| Integration check | All workstreams reviewed together | Catches conflicts between pieces |
-| Debate critiques | Each proposer reads the OTHER proposals | Forces genuine engagement |
+1. **Orchestrator dispatches workers** → calls `swarm_next`, gets `task()` parameters
+2. **Worker completes** → orchestrator calls `swarm_submit(output=...)` 
+3. **MCP auto-posts to board** → `swarm_submit` automatically relays anonymized output as a `finding`
+4. **Orchestrator can post manually** → `swarm_relay(type="blocker", ...)` to flag issues
+5. **Next dispatch includes board** → `swarm_next` auto-injects `--- FINDINGS FROM OTHER WORKSTREAMS ---` into prompts
+6. **Each worker sees only OTHER workers' findings** → anonymous, no self-reference
 
-**Where it's NOT needed** (would just slow things down):
-- Explorers — gathering facts independently is faster and more thorough
-- Sequential steps — already get full history naturally
+### Message Types
+
+| Type | Who Posts | Effect |
+|------|----------|--------|
+| `finding` | Auto (via submit) or orchestrator | Shared with other workstreams in next dispatch |
+| `blocker` | Orchestrator | Halts dependent workstreams, requires `decision` to resolve |
+| `decision` | Orchestrator only | Resolves blockers, recorded permanently |
+| `status` | Orchestrator | Progress tracking, no dispatch effect |
+
+### Orchestrator Decision Loop
+
+```
+while (session not complete):
+  board = swarm_board(sessionId)          # Read facts
+  if board.unresolvedBlockers > 0:
+    swarm_relay(type="decision", ...)     # Make the hard call
+  ready = board.workstreams.ready         # What can run?
+  tasks = swarm_next(sessionId)           # Get task calls
+  for task in tasks:
+    result = task(subagent_type=..., prompt=...)  # Dispatch
+    swarm_submit(output=result)           # Auto-relays to board
+```
+
+The orchestrator's only job is **making decisions**. All communication, identity stripping, context injection, and dependency tracking is handled by the MCP server.
 
 ---
 
@@ -710,13 +745,15 @@ source ~/.zshrc
 | Tool | Purpose |
 |------|---------|
 | `swarm_init` | Initialize session, select tier, set execution mode |
-| `swarm_next` | Get task params or subprocess spawn commands |
-| `swarm_submit` | Submit completed output, advance state |
+| `swarm_next` | Get task params or subprocess spawn commands (auto-injects board context) |
+| `swarm_submit` | Submit completed output, auto-posts to board, advance state |
 | `swarm_merge` | Merge parallel outputs with convergence guidance |
 | `swarm_status` | Full session state + convergence metrics |
 | `swarm_gate` | Quality gate: proceed, retry, or force-advance |
 | `swarm_collect` | Collect subprocess outputs (subprocess mode only) |
 | `swarm_models` | List or set available models dynamically |
+| `swarm_relay` | **NEW** — Post findings/blockers/decisions to the shared board |
+| `swarm_board` | **NEW** — Read board state, check ready/blocked workstreams |
 
 ### Invocation
 
@@ -859,6 +896,18 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v13.0 (2026-02-20)
+- **Programmatic communication layer** — replaced prompt-based coordination with MCP server state management
+- **New `swarm_relay` tool:** Orchestrator posts findings, blockers, decisions to a shared board
+- **New `swarm_board` tool:** Orchestrator reads full board state, sees ready/blocked workstreams
+- **Auto-relay on submit:** `swarm_submit` automatically posts anonymized output as a board finding
+- **Board context injection:** `swarm_next` auto-injects `--- FINDINGS FROM OTHER WORKSTREAMS ---` into worker prompts
+- **Anonymous board reads:** Workers never see their OWN findings — only other workstreams' (arXiv §3.2 anonymity)
+- **Blocker/decision protocol:** Blockers halt dependent work, decisions resolve them — all tracked in MCP state
+- **Workstream dependencies:** New `dependencies` field on workstreams, `getReadyWorkstreams()` enforces ordering
+- **Orchestrator as decision-maker:** Premium model only sees facts. All routing, identity stripping, context injection is server-side code.
+- 10 MCP tools total (up from 8)
 
 ### v12.0 (2026-02-20)
 - **3-level agent hierarchy:** Orchestrator → Workers → Sub-agents (arXiv:2602.16301 §3.2)

@@ -14,6 +14,8 @@ import {
   handleSwarmGate,
   handleSwarmModels,
   handleSwarmCollect,
+  handleSwarmRelay,
+  handleSwarmBoard,
 } from './tools.js';
 
 const server = new Server(
@@ -142,6 +144,33 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'swarm_relay',
+    description: 'Post findings from a completed workstream to the shared board. The orchestrator uses this to relay discoveries between managers. Board context is automatically injected into subsequent swarm_next prompts. Use type="blocker" to flag issues that require orchestrator decision before proceeding.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        workstream: { type: 'string', description: 'Workstream ID that produced the finding (e.g. ws-0)' },
+        type: { type: 'string', enum: ['finding', 'blocker', 'decision', 'status'], description: 'Message type (default: finding). "blocker" halts dependent workstreams until resolved by a "decision".' },
+        content: { type: 'string', description: 'The finding, blocker, or decision content' },
+      },
+      required: ['sessionId', 'workstream', 'content'],
+    },
+  },
+  {
+    name: 'swarm_board',
+    description: 'Read the shared message board. Returns all findings, blockers, decisions posted by workstreams. Shows ready/blocked workstream status. The orchestrator reads this to make informed decisions about what to dispatch next.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        workstream: { type: 'string', description: 'Filter: exclude messages from this workstream (for anonymous reading)' },
+        types: { type: 'array', items: { type: 'string', enum: ['finding', 'blocker', 'decision', 'status'] }, description: 'Filter by message types' },
+      },
+      required: ['sessionId'],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -166,6 +195,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmCollect(args as Parameters<typeof handleSwarmCollect>[0]);
     case 'swarm_models':
       return handleSwarmModels(args as Parameters<typeof handleSwarmModels>[0]);
+    case 'swarm_relay':
+      return handleSwarmRelay(args as Parameters<typeof handleSwarmRelay>[0]);
+    case 'swarm_board':
+      return handleSwarmBoard(args as Parameters<typeof handleSwarmBoard>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }

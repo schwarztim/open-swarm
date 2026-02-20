@@ -4,6 +4,7 @@ import {
   type PhaseDefinition,
   type SwarmSession,
   type PhaseState,
+  type BoardMessage,
   TIER_PHASES,
   createSession,
   getSession,
@@ -11,6 +12,11 @@ import {
   advancePhase,
   selectTier,
   buildAnonymousHistory,
+  buildBoardContext,
+  getReadyWorkstreams,
+  getBlockedWorkstreams,
+  postToBoard,
+  readBoard,
   getCoderModel,
   getAvailableModels,
   setAvailableModels,
@@ -131,6 +137,8 @@ export function handleSwarmInit(args: {
         description: `Workstream ${i}`,
         files: [],
         modelAssigned: getCoderModel(i),
+        dependencies: [],
+        status: 'ready',
       });
     }
   }
@@ -190,7 +198,8 @@ export function handleSwarmNext(args: {
       const wsContext = ws
         ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(', ') || 'TBD'}`
         : `\nWorkstream: ws-${i}`;
-      const prompt = `${history}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream.`;
+      const boardCtx = ws ? buildBoardContext(session, ws.id) : '';
+      const prompt = `${history}${boardCtx}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream.`;
       const desc = `${phaseDef.name} workstream ${i}`;
       taskCalls.push(buildTaskCall(phaseDef, desc, prompt, getCoderModel(i)));
     }
@@ -242,7 +251,8 @@ function handleSwarmNextSubprocess(
       const wsContext = ws
         ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(', ') || 'TBD'}`
         : `\nWorkstream: ws-${i}`;
-      const prompt = `${history}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream. You are running as an independent subprocess — complete your work fully, do not wait for other agents.`;
+      const boardCtx = ws ? buildBoardContext(session, ws.id) : '';
+      const prompt = `${history}${boardCtx}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream. You are running as an independent subprocess — complete your work fully, do not wait for other agents.`;
 
       const promptFile = `${outputDir}/ws-${i}-prompt.md`;
       const outputFile = `${outputDir}/ws-${i}-output.md`;
@@ -329,6 +339,13 @@ export function handleSwarmSubmit(args: {
   // Store output
   phase.outputs.push(args.output);
   if (args.agentId) phase.agentIds.push(args.agentId);
+
+  // Auto-post to board — every submit becomes a finding for other workstreams
+  const wsIndex = phase.outputs.length - 1;
+  const ws = session.workstreams[wsIndex];
+  const wsId = ws?.id ?? `ws-${wsIndex}`;
+  postToBoard(session, wsId, 'finding', args.output);
+  if (ws) ws.status = 'done';
 
   // Add anonymized history entry
   const currentRound = session.rounds.length > 0
@@ -729,5 +746,103 @@ export function handleSwarmModels(args: {
       fast: [...fastPool],
     },
     total: getAvailableModels().length,
+  });
+}
+
+// ── swarm_relay ───────────────────────────────────────────────────────
+// Orchestrator posts findings from a completed workstream to the board.
+// The board is the programmatic communication layer between managers.
+
+export function handleSwarmRelay(args: {
+  sessionId: string;
+  workstream: string;
+  type?: 'finding' | 'blocker' | 'decision' | 'status';
+  content: string;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  const type = args.type ?? 'finding';
+  const msg = postToBoard(session, args.workstream, type, args.content);
+
+  // Mark workstream status if blocker
+  if (type === 'blocker') {
+    const ws = session.workstreams.find((w) => w.id === args.workstream);
+    if (ws) ws.status = 'blocked';
+  }
+
+  const boardSize = session.board.length;
+  const findings = session.board.filter((m) => m.type === 'finding').length;
+  const blockers = session.board.filter((m) => m.type === 'blocker').length;
+  const decisions = session.board.filter((m) => m.type === 'decision').length;
+
+  return ok({
+    sessionId: session.id,
+    posted: { workstream: msg.workstream, type: msg.type },
+    boardStats: { total: boardSize, findings, blockers, decisions },
+    nextAction: blockers > 0
+      ? `⚠️ ${blockers} blocker(s) on the board. Orchestrator: review blockers and make a decision before dispatching more work. Call swarm_relay with type="decision" to resolve.`
+      : `Board updated. ${findings} finding(s) available. These will be automatically injected into the next workstream's context when you call swarm_next.`,
+  });
+}
+
+// ── swarm_board ───────────────────────────────────────────────────────
+// Orchestrator reads the full board state to make decisions.
+// This is the "facts presented to the orchestrator" — the premium model decides.
+
+export function handleSwarmBoard(args: {
+  sessionId: string;
+  workstream?: string;
+  types?: ('finding' | 'blocker' | 'decision' | 'status')[];
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  const messages = readBoard(session, args.workstream, args.types);
+  const ready = getReadyWorkstreams(session);
+  const blocked = getBlockedWorkstreams(session);
+  const blockers = session.board.filter((m) => m.type === 'blocker');
+  const decisions = session.board.filter((m) => m.type === 'decision');
+  const unresolvedBlockers = blockers.filter((b) => {
+    // A blocker is resolved if any decision was posted AFTER the blocker
+    // and either references the workstream or was posted by the orchestrator
+    return !decisions.some((d) =>
+      d.timestamp >= b.timestamp &&
+      (d.content.toLowerCase().includes(b.workstream.toLowerCase()) ||
+       d.content.toLowerCase().includes('resolved') ||
+       d.workstream === 'orchestrator')
+    );
+  });
+
+  let nextAction: string;
+  if (unresolvedBlockers.length > 0) {
+    nextAction = `🛑 ${unresolvedBlockers.length} unresolved blocker(s). As orchestrator, make decisions on these before proceeding. Call swarm_relay(type="decision", content="...") to resolve each.`;
+  } else if (ready.length > 0) {
+    nextAction = `${ready.length} workstream(s) ready to dispatch: ${ready.map((w) => w.id).join(', ')}. Call swarm_next to get task calls.`;
+  } else if (blocked.length > 0) {
+    nextAction = `All remaining workstreams are blocked on dependencies. Resolve dependencies first.`;
+  } else {
+    nextAction = 'All workstreams dispatched or complete.';
+  }
+
+  return ok({
+    sessionId: session.id,
+    messages,
+    summary: {
+      total: messages.length,
+      byType: {
+        finding: messages.filter((m) => m.type === 'finding').length,
+        blocker: messages.filter((m) => m.type === 'blocker').length,
+        decision: messages.filter((m) => m.type === 'decision').length,
+        status: messages.filter((m) => m.type === 'status').length,
+      },
+      unresolvedBlockers: unresolvedBlockers.length,
+    },
+    workstreams: {
+      ready: ready.map((w) => w.id),
+      blocked: blocked.map((w) => ({ id: w.id, waitingOn: w.dependencies })),
+      done: session.workstreams.filter((w) => w.status === 'done').map((w) => w.id),
+    },
+    nextAction,
   });
 }

@@ -30,6 +30,15 @@ export interface Workstream {
   subprocessPid?: number;
   outputFile?: string;
   sessionUuid?: string;
+  dependencies: string[]; // workstream IDs that must complete before this one
+  status: 'pending' | 'ready' | 'in_progress' | 'done' | 'blocked';
+}
+
+export interface BoardMessage {
+  workstream: string; // who posted it
+  type: 'finding' | 'blocker' | 'decision' | 'status';
+  content: string;
+  timestamp: number;
 }
 
 export interface HistoryEntry {
@@ -55,6 +64,7 @@ export interface SwarmSession {
   workstreams: Workstream[];
   history: HistoryEntry[];
   rounds: RoundRecord[];
+  board: BoardMessage[]; // programmatic message board
   maxLoops: number;
   createdAt: Date;
   executionMode: ExecutionMode;
@@ -284,6 +294,7 @@ export function createSession(tier: Tier, task: string, executionMode: Execution
     workstreams: [],
     history: [],
     rounds: [],
+    board: [],
     maxLoops: 3,
     createdAt: new Date(),
     executionMode,
@@ -454,4 +465,74 @@ export function stripIdentity(text: string): string {
     .replace(/agent[_-]?\d+/gi, 'a contributor')
     .replace(/workstream[_-]?\d+/gi, 'workstream')
     .replace(/ws-\d+/gi, 'workstream');
+}
+
+// ── Board Operations ──────────────────────────────────────────────────
+
+export function postToBoard(
+  session: SwarmSession,
+  workstream: string,
+  type: BoardMessage['type'],
+  content: string,
+): BoardMessage {
+  const msg: BoardMessage = {
+    workstream,
+    type,
+    content: stripIdentity(content),
+    timestamp: Date.now(),
+  };
+  session.board.push(msg);
+  return msg;
+}
+
+export function readBoard(
+  session: SwarmSession,
+  forWorkstream?: string,
+  types?: BoardMessage['type'][],
+): BoardMessage[] {
+  let messages = session.board;
+  // Exclude own messages (anonymous — you don't see your own posts labeled)
+  if (forWorkstream) {
+    messages = messages.filter((m) => m.workstream !== forWorkstream);
+  }
+  if (types && types.length > 0) {
+    messages = messages.filter((m) => types.includes(m.type));
+  }
+  return messages;
+}
+
+export function buildBoardContext(session: SwarmSession, forWorkstream: string): string {
+  const messages = readBoard(session, forWorkstream);
+  if (messages.length === 0) return '';
+
+  const lines: string[] = ['', '--- FINDINGS FROM OTHER WORKSTREAMS ---'];
+  for (const msg of messages) {
+    lines.push(`[${msg.type.toUpperCase()}] ${msg.content}`);
+  }
+  lines.push('--- END FINDINGS ---');
+  lines.push('');
+  return lines.join('\n');
+}
+
+export function getReadyWorkstreams(session: SwarmSession): Workstream[] {
+  return session.workstreams.filter((ws) => {
+    if (ws.status !== 'pending' && ws.status !== 'ready') return false;
+    // Check all dependencies are done
+    const depsReady = ws.dependencies.every((depId) => {
+      const dep = session.workstreams.find((w) => w.id === depId);
+      return dep && dep.status === 'done';
+    });
+    if (depsReady) ws.status = 'ready';
+    return depsReady;
+  });
+}
+
+export function getBlockedWorkstreams(session: SwarmSession): Workstream[] {
+  return session.workstreams.filter((ws) => {
+    if (ws.status !== 'pending') return false;
+    return ws.dependencies.some((depId) => {
+      const dep = session.workstreams.find((w) => w.id === depId);
+      return !dep || dep.status !== 'done';
+    });
+  });
 }
