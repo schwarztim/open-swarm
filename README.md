@@ -631,7 +631,7 @@ Copy agent configs:
 cp opencode/agents/*.md ~/.config/opencode/agents/
 ```
 
-Add the swarm agent to the `"agent"` section of `opencode.json`:
+Add the swarm orchestrator AND worker agents to the `"agent"` section of `opencode.json`:
 ```json
 {
   "agent": {
@@ -644,17 +644,59 @@ Add the swarm agent to the `"agent"` section of `opencode.json`:
       "prompt": "{file:~/.config/opencode/agents/swarm.md}",
       "tools": {
         "write": false, "edit": false, "patch": false,
-        "bash": true,
+        "bash": true, "task": true,
         "glob": false, "grep": false, "ls": false, "view": false,
         "fetch": false, "diagnostics": false,
         "swarm_init": true, "swarm_next": true, "swarm_submit": true,
         "swarm_merge": true, "swarm_status": true, "swarm_gate": true,
         "swarm_collect": true, "swarm_models": true
       }
+    },
+    "worker-anthropic": {
+      "name": "worker-anthropic",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-anthropic.md}",
+      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+    },
+    "worker-openai": {
+      "name": "worker-openai",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.2-codex",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-openai.md}",
+      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+    },
+    "worker-gemini": {
+      "name": "worker-gemini",
+      "mode": "subagent",
+      "model": "github-copilot/gemini-3-pro-preview",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-gemini.md}",
+      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+    },
+    "worker-haiku": {
+      "name": "worker-haiku",
+      "mode": "subagent",
+      "model": "github-copilot/claude-haiku-4.5",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/worker-haiku.md}",
+      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+    },
+    "worker": {
+      "name": "worker",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker.md}",
+      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
     }
   }
 }
 ```
+
+> ⚠️ **Critical:** `task: true` is required on both the swarm agent AND all worker agents. Without it, the orchestrator can't dispatch workers, and workers can't spawn sub-agents. This enables the 3-level hierarchy.
 
 ### Shell Alias
 
