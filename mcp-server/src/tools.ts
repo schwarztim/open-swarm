@@ -124,7 +124,7 @@ export function handleSwarmInit(args: {
   const hasParallel = phaseDefs.some((p) => p.parallel);
   if (hasParallel && session.workstreams.length === 0) {
     let count = 2;
-    if (tier === 'unleashed') count = 8;
+    if (tier === 'unleashed') count = 32;
     else if (tier === 'blitz' || (fileCount && fileCount > 20)) count = 4;
     
     for (let i = 0; i < count; i++) {

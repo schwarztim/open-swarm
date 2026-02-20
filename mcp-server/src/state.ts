@@ -381,7 +381,7 @@ export function selectTier(taskDescription: string, fileCount?: number): Tier {
 
   if (/debate|decide|which approach|tradeoff/.test(lower)) return 'debate';
 
-  if (/unleashed|max|pedal to the metal|no restraints/.test(lower)) return 'unleashed';
+  if (/unleashed|max|pedal to the metal|no restraints|hurt|pain|destroy/.test(lower)) return 'unleashed';
 
   if (/refactor|security|architecture|complex/.test(lower)) return 'full-swarm';
 
