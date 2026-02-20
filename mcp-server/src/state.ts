@@ -1,6 +1,7 @@
 // ── Types ──────────────────────────────────────────────────────────────
 
 export type Tier = 'duo' | 'trio' | 'full-swarm' | 'blitz' | 'debate';
+export type ExecutionMode = 'task' | 'subprocess';
 
 export interface PhaseDefinition {
   name: string;
@@ -26,6 +27,9 @@ export interface Workstream {
   modelAssigned: string;
   score?: number;
   criticalIssues?: number;
+  subprocessPid?: number;
+  outputFile?: string;
+  sessionUuid?: string;
 }
 
 export interface HistoryEntry {
@@ -53,6 +57,8 @@ export interface SwarmSession {
   rounds: RoundRecord[];
   maxLoops: number;
   createdAt: Date;
+  executionMode: ExecutionMode;
+  outputDir: string;
 }
 
 // ── Dynamic Model Registry ────────────────────────────────────────────
@@ -240,7 +246,8 @@ function generateId(): string {
   return `swarm-${Date.now()}-${idCounter}`;
 }
 
-export function createSession(tier: Tier, task: string): SwarmSession {
+export function createSession(tier: Tier, task: string, executionMode: ExecutionMode = 'task'): SwarmSession {
+  const id = generateId();
   const phaseDefs = TIER_PHASES[tier];
   const phases: PhaseState[] = phaseDefs.map((p) => ({
     name: p.name,
@@ -250,7 +257,7 @@ export function createSession(tier: Tier, task: string): SwarmSession {
   }));
 
   const session: SwarmSession = {
-    id: generateId(),
+    id,
     tier,
     task,
     phases,
@@ -260,6 +267,8 @@ export function createSession(tier: Tier, task: string): SwarmSession {
     rounds: [],
     maxLoops: 3,
     createdAt: new Date(),
+    executionMode,
+    outputDir: `/tmp/swarm-${id}`,
   };
 
   sessions.set(session.id, session);

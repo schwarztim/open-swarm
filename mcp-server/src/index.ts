@@ -13,6 +13,7 @@ import {
   handleSwarmStatus,
   handleSwarmGate,
   handleSwarmModels,
+  handleSwarmCollect,
 } from './tools.js';
 
 const server = new Server(
@@ -108,6 +109,29 @@ const TOOLS = [
     },
   },
   {
+    name: 'swarm_collect',
+    description: 'Collect outputs from subprocess workstreams. Only for subprocess execution mode. Batch-submits all outputs and advances phase.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        outputs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              workstream: { type: 'string', description: 'Workstream ID (e.g. ws-0)' },
+              output: { type: 'string', description: 'The collected output text from the subprocess' },
+            },
+            required: ['workstream', 'output'],
+          },
+          description: 'Array of workstream outputs collected from subprocess files',
+        },
+      },
+      required: ['sessionId', 'outputs'],
+    },
+  },
+  {
     name: 'swarm_models',
     description: 'List or set available models for swarm orchestration. Models are auto-categorized into pools (premium, coder, critic, fast) by tier and provider.',
     inputSchema: {
@@ -138,6 +162,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmStatus(args as Parameters<typeof handleSwarmStatus>[0]);
     case 'swarm_gate':
       return handleSwarmGate(args as Parameters<typeof handleSwarmGate>[0]);
+    case 'swarm_collect':
+      return handleSwarmCollect(args as Parameters<typeof handleSwarmCollect>[0]);
     case 'swarm_models':
       return handleSwarmModels(args as Parameters<typeof handleSwarmModels>[0]);
     default:

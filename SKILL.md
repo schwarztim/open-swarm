@@ -2,13 +2,14 @@
 name: swarm-orchestrator
 description: >-
   Multi-agent orchestration using cooperative dynamics from arXiv:2602.16301. Spawns diverse
-  agent swarms via the task tool that adapt through anonymous interaction history and converge
-  on optimal solutions via mutual shaping. Use when tasks span 3+ files, need design decisions,
-  or benefit from competing perspectives. Invoke with /swarm-orchestrator or "swarm this".
+  agent swarms via task tool or independent copilot CLI subprocesses. Agents adapt through
+  anonymous interaction history and converge on optimal solutions via mutual shaping.
+  Use when tasks span 3+ files, need design decisions, or benefit from competing perspectives.
+  Invoke with /swarm-orchestrator or "swarm this".
 license: MIT
 metadata:
   author: Tim Schwarz
-  version: "6.1"
+  version: "6.2"
   paper: "arXiv:2602.16301 — Wołczyk, Weis, Nasser et al. (2026)"
   mcp: open-swarm
 ---
@@ -48,6 +49,49 @@ LOOP:
   7. If server says "All phases complete"  → STOP. Otherwise → go to step 1.
 ```
 
+# Subprocess Execution Mode (True Process Isolation)
+
+When the user says "subprocess mode", "independent agents", or "copilot subprocess", OR when you
+want maximum isolation per arXiv:2602.16301, use subprocess mode:
+
+**Step 0:** Call swarm_init with executionMode:
+```
+swarm_init(task="...", executionMode="subprocess")
+```
+
+**Subprocess Loop:**
+```
+LOOP:
+  1. Call swarm_next(sessionId)           → server returns spawnCommands with copilot CLI commands
+  2. Create output directory:              mkdir -p <outputDir>
+  3. For EACH spawnCommand:
+     a. Write prompt: printf '%s' "<prompt>" > <promptFile>
+     b. Spawn: bash(command="<command>", mode="async", detach=true)
+     c. Note the PID
+  4. Monitor: poll log files for completion (check file size stops growing)
+  5. Read outputs: cat each outputFile or logFile
+  6. Call swarm_collect(sessionId, outputs=[{workstream, output}, ...])
+  7. If server says "call swarm_merge"     → call swarm_merge, then swarm_collect with merge result
+  8. If server says "call swarm_gate"      → call swarm_gate with scores
+  9. If server says "All phases complete"  → STOP. Otherwise → go to step 1.
+```
+
+**Why subprocess mode?** Each copilot process gets:
+- Its own 200k context window (no shared context pollution)
+- Its own model via `--model` flag (true diversity)
+- Its own MCP connections (independent tool access)
+- Zero visibility into other workstreams (true anonymity per §3.1)
+- Fault isolation (one crash doesn't affect others)
+
+**When to use subprocess vs task mode:**
+| Scenario | Mode |
+|----------|------|
+| Quick fix, small scope | task (duo/trio) |
+| Large codebase, many files | subprocess (blitz) |
+| Need max diversity/isolation | subprocess (any tier) |
+| Debate between approaches | subprocess (debate) |
+| Default / unsure | task |
+
 # ⛔ Violations That Break The System
 
 These have been observed in real sessions. Each one causes failure:
@@ -82,6 +126,8 @@ For duo or trio: call `swarm_init` directly. No pre-flight needed.
 | full-swarm | 6+ | 10 | "refactor", "security", "architecture" |
 | blitz | 10+ | 11 | "massive", "entire codebase", 50+ files |
 | debate | N+1 | 5 | "debate", "which approach", "tradeoff" |
+
+All tiers support both `task` and `subprocess` execution modes.
 
 # Why This Architecture
 

@@ -1,6 +1,9 @@
 import {
   type Tier,
+  type ExecutionMode,
   type PhaseDefinition,
+  type SwarmSession,
+  type PhaseState,
   TIER_PHASES,
   createSession,
   getSession,
@@ -62,12 +65,13 @@ export function handleSwarmInit(args: {
   task: string;
   tier?: Tier;
   fileCount?: number;
+  executionMode?: ExecutionMode;
 }): ToolResult {
   const { task, fileCount } = args;
   if (!task) return err('Missing required field: task');
 
   const tier = args.tier ?? selectTier(task, fileCount);
-  const session = createSession(tier, task);
+  const session = createSession(tier, task, args.executionMode);
   const phaseDefs = TIER_PHASES[tier];
 
   // Seed default workstreams for parallel tiers
@@ -89,6 +93,8 @@ export function handleSwarmInit(args: {
     tier,
     totalPhases: phaseDefs.length,
     firstPhase: phaseDefs[0].name,
+    executionMode: session.executionMode,
+    outputDir: session.executionMode === 'subprocess' ? session.outputDir : undefined,
     nextAction: `Call swarm_next with sessionId "${session.id}" to get the first task.`,
   });
 }
@@ -107,6 +113,12 @@ export function handleSwarmNext(args: {
   const phase = session.phases[phaseIdx];
   const history = buildAnonymousHistory(session);
 
+  // ── Subprocess mode ──
+  if (session.executionMode === 'subprocess') {
+    return handleSwarmNextSubprocess(session, phaseDef, phase, phaseIdx, history);
+  }
+
+  // ── Task mode (existing behavior) ──
   if (phaseDef.parallel) {
     const wsCount = workstreamCount(session);
     const taskCalls = [];
@@ -144,6 +156,87 @@ export function handleSwarmNext(args: {
     parallel: false,
     taskCall,
     nextAction: `Execute this task() call, then call swarm_submit with the output.`,
+  });
+}
+
+function handleSwarmNextSubprocess(
+  session: SwarmSession,
+  phaseDef: PhaseDefinition,
+  phase: PhaseState,
+  phaseIdx: number,
+  history: string,
+): ToolResult {
+  const outputDir = session.outputDir;
+
+  if (phaseDef.parallel) {
+    const wsCount = workstreamCount(session);
+    const spawnCommands = [];
+
+    for (let i = 0; i < wsCount; i++) {
+      const ws = session.workstreams[i];
+      const model = getCoderModel(i);
+      const wsContext = ws
+        ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(', ') || 'TBD'}`
+        : `\nWorkstream: ws-${i}`;
+      const prompt = `${history}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream. You are running as an independent subprocess — complete your work fully, do not wait for other agents.`;
+
+      const promptFile = `${outputDir}/ws-${i}-prompt.md`;
+      const outputFile = `${outputDir}/ws-${i}-output.md`;
+      const logFile = `${outputDir}/ws-${i}-log.txt`;
+
+      // Track on workstream
+      if (ws) {
+        ws.outputFile = outputFile;
+        ws.modelAssigned = model;
+      }
+
+      spawnCommands.push({
+        workstream: `ws-${i}`,
+        model,
+        promptFile,
+        outputFile,
+        logFile,
+        prompt,
+        command: `mkdir -p ${outputDir} && cat > ${promptFile} << 'SWARM_PROMPT_EOF'\n${prompt}\nSWARM_PROMPT_EOF\ncopilot -p "$(cat ${promptFile})" --model ${model} --allow-all --autopilot -s --share ${outputFile} 2>&1 | tee ${logFile}`,
+      });
+    }
+
+    phase.status = 'in_progress';
+    return ok({
+      sessionId: session.id,
+      phase: phaseDef.name,
+      phaseIndex: phaseIdx,
+      parallel: true,
+      executionMode: 'subprocess',
+      workstreamCount: wsCount,
+      spawnCommands,
+      nextAction: `Create output directory: mkdir -p ${outputDir}\nThen for EACH spawn command:\n1. Write the prompt file\n2. Execute the command via bash(mode="async", detach=true)\nWhen ALL processes complete (check log files for completion), call swarm_collect with the outputs.`,
+    });
+  }
+
+  // Single subprocess
+  const model = phaseDef.model;
+  const prompt = `${history}\n\nExecute the "${phaseDef.name}" phase for this task. You are running as an independent subprocess — complete your work fully.`;
+  const promptFile = `${outputDir}/phase-${phaseIdx}-prompt.md`;
+  const outputFile = `${outputDir}/phase-${phaseIdx}-output.md`;
+  const logFile = `${outputDir}/phase-${phaseIdx}-log.txt`;
+
+  phase.status = 'in_progress';
+  return ok({
+    sessionId: session.id,
+    phase: phaseDef.name,
+    phaseIndex: phaseIdx,
+    parallel: false,
+    executionMode: 'subprocess',
+    spawnCommand: {
+      model,
+      promptFile,
+      outputFile,
+      logFile,
+      prompt,
+      command: `mkdir -p ${outputDir} && cat > ${promptFile} << 'SWARM_PROMPT_EOF'\n${prompt}\nSWARM_PROMPT_EOF\ncopilot -p "$(cat ${promptFile})" --model ${model} --allow-all --autopilot -s --share ${outputFile} 2>&1 | tee ${logFile}`,
+    },
+    nextAction: `Execute the command via bash, wait for completion, then call swarm_collect with the output.`,
   });
 }
 
@@ -437,6 +530,71 @@ export function handleSwarmGate(args: {
     retryPhase,
     retryInstructions: retryDetails.join('\n\n---\n\n'),
     nextAction: `Scores below threshold. Re-run the "${retryPhase}" phase for failing workstreams, then call swarm_gate again.`,
+  });
+}
+
+// ── swarm_collect ─────────────────────────────────────────────────────
+
+export function handleSwarmCollect(args: {
+  sessionId: string;
+  outputs: Array<{ workstream: string; output: string }>;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  if (session.executionMode !== 'subprocess') {
+    return err('swarm_collect is only for subprocess execution mode. Use swarm_submit for task mode.');
+  }
+
+  if (!args.outputs || args.outputs.length === 0) {
+    return err('No outputs provided. Pass an array of {workstream, output} objects.');
+  }
+
+  const results = [];
+  for (const item of args.outputs) {
+    // Feed each output through the existing submit logic
+    const submitResult = handleSwarmSubmit({
+      sessionId: args.sessionId,
+      output: item.output,
+      agentId: `subprocess-${item.workstream}`,
+    });
+    results.push({
+      workstream: item.workstream,
+      submitResult: JSON.parse(submitResult.content[0].text),
+    });
+  }
+
+  // Check if all outputs triggered phase completion
+  const phase = session.phases[session.currentPhaseIndex];
+  const phaseDef = getPhaseDefinition(session);
+
+  let nextAction: string;
+  if (phase.status === 'done') {
+    const nextIdx = session.currentPhaseIndex + 1;
+    if (nextIdx < session.phases.length) {
+      const nextDef = TIER_PHASES[session.tier][nextIdx];
+      if (nextDef.name.startsWith('merge_')) {
+        nextAction = `All subprocess outputs collected. Phase complete. Call swarm_merge with sessionId "${session.id}" and the outputs.`;
+      } else {
+        nextAction = `All subprocess outputs collected. Phase complete. Call swarm_next with sessionId "${session.id}" to advance.`;
+      }
+    } else {
+      nextAction = 'All phases complete. Swarm finished.';
+    }
+  } else {
+    const phaseDefCheck = getPhaseDefinition(session);
+    const expected = phaseDefCheck.parallel ? workstreamCount(session) : 1;
+    const remaining = expected - phase.outputs.length;
+    nextAction = `${remaining} more output(s) still expected. Collect remaining subprocess outputs and call swarm_collect again.`;
+  }
+
+  return ok({
+    sessionId: session.id,
+    phase: phase.name,
+    phaseStatus: phase.status,
+    collected: args.outputs.length,
+    results,
+    nextAction,
   });
 }
 
