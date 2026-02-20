@@ -8,7 +8,7 @@
 [![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-Skill-8957e5?logo=github)](https://docs.github.com/copilot)
 [![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
-[![Version](https://img.shields.io/badge/version-6.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-10.0-blue.svg)](#changelog)
 
 *Cooperation isn't programmed — it **emerges**.*
 
@@ -62,35 +62,60 @@ graph LR
 
 ---
 
-## 🛫 Pre-Flight Setup
+## 🛫 Quick Start
 
-Before launching a swarm, these Copilot CLI commands optimize the experience:
+### Option A: OpenCode (Recommended — enforced orchestration)
 
+```bash
+# Install OpenCode
+brew install opencode
+
+# Authenticate with GitHub Copilot
+opencode auth login  # Select "GitHub Copilot" → device code flow
+
+# Copy agent configs
+cp opencode/agents/*.md ~/.config/opencode/agents/
+
+# Add MCP server to ~/.config/opencode/opencode.json
+# (see Installation section below)
+
+# Launch the swarm
+alias swarm='opencode --agent swarm'
+swarm
 ```
-/fleet                  # Enable parallel subagent execution (essential for swarms)
-/plan                   # Use plan mode first for Full Swarm or Debate tiers
-/context                # Check available token space before starting
-/tasks                  # Monitor running subagents during swarm execution
-```
 
-> **💡 Key insight:** Each subagent runs in **its own context window**. This means swarms don't bloat your main conversation — it's actually *more* token-efficient than doing everything in one thread.
+### Option B: Copilot CLI (skill-based, no tool enforcement)
+
+```bash
+mkdir -p ~/.copilot/skills/swarm-orchestrator && \
+  curl -sL https://raw.githubusercontent.com/schwarztim/open-swarm/main/SKILL.md \
+  -o ~/.copilot/skills/swarm-orchestrator/SKILL.md
+```
 
 ---
 
-## 🤖 Leverages Existing Custom Agents
+## 🤖 Agent Architecture (OpenCode)
 
-The skill uses Copilot CLI's built-in custom agents instead of reinventing prompts:
+The swarm agent **cannot write files, run bash, or read code**. It can ONLY call MCP tools. This enforces the orchestration pattern — the swarm agent delegates ALL work to provider-specific workers.
 
-| Swarm Role | Custom Agent | Why |
-|-----------|-------------|-----|
-| **Architect** | `agent_type="architect"` | Already has rich design principles, ADR templates, pattern guidance |
-| **Coder** | `agent_type="clean-code"` | Clean Code principles, SOLID, naming conventions built-in |
-| **Critic** | `agent_type="code-review"` | High signal-to-noise ratio — only surfaces real issues |
-| **Debugger** | `agent_type="debugger"` | Scientific debugging method, hypothesis-driven investigation |
-| **Explorer** | `agent_type="explore"` | Fast codebase analysis, read-only, parallel-safe |
-| **Tester** | `agent_type="task"` | Command execution with brief success/full failure output |
+| Agent | Role | Model | Tools |
+|-------|------|-------|-------|
+| **swarm** | Orchestrator | claude-sonnet-4 | MCP tools only (8 tools) + bash (subprocess spawning) |
+| **worker-anthropic** | Anthropic worker | claude-sonnet-4 | Full toolset |
+| **worker-openai** | OpenAI worker | gpt-5.2-codex | Full toolset |
+| **worker-gemini** | Google worker | gemini-3-pro-preview | Full toolset |
+| **worker-haiku** | Fast/merge worker | claude-haiku-4.5 | Full toolset |
+| **worker** | Default fallback | claude-sonnet-4 | Full toolset |
 
-Only **swarm-specific roles** (Synthesizer, Critic override with scoring) need explicit prompts.
+### Provider-Based Dynamic Routing
+
+The MCP server assigns models to workstreams and returns a `provider` field. The swarm agent routes to the matching `@worker-*` agent. **No model names are hardcoded** — when new models are added to any provider, they auto-route without config changes.
+
+```
+MCP returns provider="anthropic"  → @worker-anthropic
+MCP returns provider="openai"     → @worker-openai
+MCP returns provider="google"     → @worker-gemini
+```
 
 ---
 
@@ -167,18 +192,25 @@ flowchart TD
 <br/><sub>Architecture, security-critical</sub>
 
 </td>
-<td width="20%" align="center">
+<td width="16%" align="center">
 
 **⚡ Blitz**
 <br/>10+ agents · ~20+ calls
 <br/><sub>Massive codebases, 50+ files</sub>
 
 </td>
-<td width="20%" align="center">
+<td width="16%" align="center">
 
 **🟣 Debate**
 <br/>N+1 agents · ~3N+1 calls
 <br/><sub>Design decisions, tradeoffs</sub>
+
+</td>
+<td width="16%" align="center">
+
+**🔥 Unleashed**
+<br/>32 parallel agents · subprocess mode
+<br/><sub>"Make it hurt" — max parallelism</sub>
 
 </td>
 </tr>
@@ -330,6 +362,78 @@ sequenceDiagram
     S-->>U: 🤝 Confidence score + summary
 ```
 
+### Unleashed Flow (Maximum Pain)
+
+```mermaid
+sequenceDiagram
+    participant U as 🎯 Task
+    participant S as 🐝 Swarm Orchestrator
+    participant E as 🔎 32× Explorers<br/>(subprocess)
+    participant M as 🔀 Merge
+    participant A as 📐 Triage
+    participant C as 🔨 32× Coders<br/>(subprocess)
+    participant R as 🔍 32× Critics<br/>(subprocess)
+    participant G as 🚪 Gate
+    participant SY as 🧠 Synthesizer
+
+    U->>S: "make it hurt"
+    S->>S: swarm_init(tier=unleashed, executionMode=subprocess)
+    S->>E: bash: spawn 32 opencode processes
+    Note over E: ⚡ 32 SIMULTANEOUS processes<br/>diverse models (Anthropic/OpenAI/Google)
+    E->>S: swarm_collect(outputs)
+    S->>M: swarm_merge + convergence metrics
+    M->>A: Triage workstreams
+    A->>S: swarm_next → build phase
+    S->>C: bash: spawn 32 opencode processes
+    Note over C: ⚡ 32 parallel coders<br/>anonymous history from recon
+    C->>S: swarm_collect(outputs)
+    S->>M: swarm_merge + consensus guidance
+    S->>R: bash: spawn 32 opencode processes
+    R->>S: swarm_collect(outputs)
+    S->>G: swarm_gate(scores)
+    G->>SY: All pass → synthesize
+    SY-->>U: 🤝 Converged solution
+```
+
+---
+
+## 🚀 Execution Modes
+
+### Task Mode (default)
+The swarm agent dispatches work to `@worker-*` subagents via OpenCode's `task()` tool. Workers run sequentially within the orchestrator's context.
+
+### Subprocess Mode (unleashed)
+The swarm agent spawns **independent `opencode run` processes** via bash. Each process runs in its own terminal with its own context window. True OS-level parallelism — your CPU will feel it.
+
+```bash
+# What subprocess mode actually does:
+opencode run "<prompt>" --agent worker-anthropic --dangerously-skip-permissions > /tmp/swarm-xxx/ws-0-output.md &
+opencode run "<prompt>" --agent worker-openai --dangerously-skip-permissions > /tmp/swarm-xxx/ws-1-output.md &
+opencode run "<prompt>" --agent worker-gemini --dangerously-skip-permissions > /tmp/swarm-xxx/ws-2-output.md &
+# ... × 32 for unleashed mode
+wait
+```
+
+---
+
+## 📊 Convergence Metrics (arXiv:2602.16301 §4)
+
+The MCP server tracks convergence across rounds:
+
+| Metric | Description |
+|--------|-------------|
+| `currentAvg` | Average quality score this round |
+| `previousAvg` | Average quality score last round |
+| `delta` | Improvement between rounds |
+| `stalling` | `true` if delta < 0.5 (agents stuck) |
+| `trend` | Array of all round averages |
+
+When **stalling** is detected, the merge agent receives special guidance:
+> *"The swarm is stalling. Look for novel, outlier ideas that might break the deadlock. Be bold."*
+
+When **converging well** (delta > 0.5):
+> *"Refine details and polish. Focus on consistency."*
+
 ---
 
 ## 🔗 Cross-Communication (Paper §3.2)
@@ -455,80 +559,98 @@ Aligned with [GitHub's best practices](https://docs.github.com/copilot/how-tos/c
 
 ## 🚀 Installation
 
-### Option A: MCP Server (Recommended — enforced orchestration)
+### MCP Server via ToolHive (Recommended)
 
 ```bash
-# Build and run with ToolHive
+# Build the container
 cd mcp-server
 docker build -t localhost:5555/open-swarm-mcp:latest .
 docker push localhost:5555/open-swarm-mcp:latest
-thv run localhost:5555/open-swarm-mcp:latest --name open-swarm --transport stdio
+
+# Run with ToolHive
+thv run localhost:5555/open-swarm-mcp:latest --name open-swarm
 
 # Verify
 thv list | grep open-swarm
+# → open-swarm  localhost:5555/open-swarm-mcp:latest  running  http://127.0.0.1:<PORT>/mcp
 ```
 
-Then register with Copilot CLI — add to `~/.copilot/mcp-config.json`:
+> ⚠️ **Important:** `thv restart` does NOT pull new images. After rebuilding, use `thv stop open-swarm && thv rm open-swarm && thv run ...` to pick up changes.
+
+### Wire into OpenCode
+
+Add to `~/.config/opencode/opencode.json`:
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "open-swarm": {
-      "type": "http",
+      "type": "remote",
       "url": "http://127.0.0.1:<PORT>/mcp"
     }
   }
 }
 ```
-Replace `<PORT>` with the port from `thv list` output.
 
-Then install the thin SKILL.md wrapper:
+Copy agent configs:
 ```bash
-mkdir -p ~/.copilot/skills/swarm-orchestrator && \
-  curl -sL https://raw.githubusercontent.com/schwarztim/open-swarm/main/SKILL.md \
-  -o ~/.copilot/skills/swarm-orchestrator/SKILL.md
+cp opencode/agents/*.md ~/.config/opencode/agents/
 ```
 
-### Option B: Skill Only (no server needed)
+Add the swarm agent to the `"agent"` section of `opencode.json`:
+```json
+{
+  "agent": {
+    "swarm": {
+      "name": "swarm",
+      "description": "Swarm orchestrator - delegates through Open Swarm MCP.",
+      "mode": "primary",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.1,
+      "prompt": "{file:~/.config/opencode/agents/swarm.md}",
+      "tools": {
+        "write": false, "edit": false, "patch": false,
+        "bash": true,
+        "glob": false, "grep": false, "ls": false, "view": false,
+        "fetch": false, "diagnostics": false,
+        "swarm_init": true, "swarm_next": true, "swarm_submit": true,
+        "swarm_merge": true, "swarm_status": true, "swarm_gate": true,
+        "swarm_collect": true, "swarm_models": true
+      }
+    }
+  }
+}
+```
+
+### Shell Alias
 
 ```bash
-mkdir -p ~/.copilot/skills/swarm-orchestrator && \
-  curl -sL https://raw.githubusercontent.com/schwarztim/open-swarm/main/SKILL.md \
-  -o ~/.copilot/skills/swarm-orchestrator/SKILL.md
+echo 'alias swarm="opencode --agent swarm"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ### MCP Server Tools
 
 | Tool | Purpose |
 |------|---------|
-| `swarm_init` | Initialize session, auto-select tier |
-| `swarm_next` | Get exact task() params for current phase |
+| `swarm_init` | Initialize session, select tier, set execution mode |
+| `swarm_next` | Get task params or subprocess spawn commands |
 | `swarm_submit` | Submit completed output, advance state |
-| `swarm_merge` | Merge parallel outputs anonymously |
-| `swarm_status` | Full session state + next action |
-| `swarm_gate` | Quality gate: proceed or retry |
-
-Restart Copilot CLI, or run `/skills reload` if already in a session. The skill appears in `/skills`.
-
-### Verify Installation
-
-```
-> /skills list
-# Should list "swarm-orchestrator" with description
-
-> /skills info
-# Shows skill location and details
-```
+| `swarm_merge` | Merge parallel outputs with convergence guidance |
+| `swarm_status` | Full session state + convergence metrics |
+| `swarm_gate` | Quality gate: proceed, retry, or force-advance |
+| `swarm_collect` | Collect subprocess outputs (subprocess mode only) |
+| `swarm_models` | List or set available models dynamically |
 
 ### Invocation
 
-```
-# Explicit invocation
-/swarm-orchestrator
+```bash
+# Launch swarm orchestrator
+swarm
 
-# Natural language (Copilot auto-detects)
-"swarm this"
-"debate the best approach"
-"use the swarm-orchestrator skill to..."
+# Then paste your task:
+# "Use unleashed mode (make it hurt) on ~/myproject — refactor auth to JWT"
+# "Use blitz on ~/api — wire all 26 Azure models"
+# "Debate: GraphQL vs REST for our new API"
 ```
 
 ---
@@ -635,7 +757,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ## 🗺️ Roadmap
 
 - [x] Core skill with 4 tiered modes (Duo, Trio, Full Swarm, Debate)
-- [x] Paper-aligned three rules with quality scoring
+- [x] Paper-aligned four rules with quality scoring
 - [x] CLI operability rewrite (v3.0 — 68% size reduction)
 - [x] Custom agent integration (v4.0 — architect, clean-code, code-review, debugger)
 - [x] Fleet mode, plan mode, `/tasks` monitoring integration (v4.0)
@@ -643,25 +765,58 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - [x] **Blitz tier for massive codebases** (v5.0 — 10+ agents, 50+ files)
 - [x] **Cross-communication patterns from paper §3.2** (v5.0)
 - [x] **Mandatory review loop enforcement** (v5.0)
-- [x] **Parallel coders with workstream awareness** (v5.0)
-- [x] **Merge Protocol after parallel fan-out** (v5.1 — inspired by Agent Framework)
-- [ ] Companion agent definition (`~/.copilot/agents/swarm-orchestrator.agent.md`)
+- [x] **Merge Protocol after parallel fan-out** (v5.1)
+- [x] **MCP Server conversion** (v6.0 — enforced tool calls)
+- [x] **OpenCode migration** (v7.0 — per-agent tool restrictions)
+- [x] **Provider-based dynamic routing** (v8.0 — future-proof model selection)
+- [x] **Convergence metrics** (v8.0 — stalling detection, trend tracking)
+- [x] **Anonymous history with identity stripping** (v9.0 — arXiv §3.1)
+- [x] **Subprocess mode** (v9.0 — true OS-level parallelism via `opencode run`)
+- [x] **Consensus-based merge** (v9.0 — convergence guides synthesis)
+- [x] **Unleashed tier** (v10.0 — 32 parallel workstreams, "make it hurt")
 - [ ] Cross-session lesson tracking with JSONL persistence
-- [ ] Automated tier selection heuristics
-- [ ] Plugin packaging for `/plugin install`
 - [ ] Swarm visualization/replay tool
 - [ ] Benchmark suite against single-agent baselines
+- [ ] Auto-scaling workstream count based on system resources
 
 ---
 
 ## 📋 Changelog
 
+### v10.0 (2026-02-20)
+- **Unleashed tier:** 32 parallel workstreams — maximum throughput mode
+- Auto-selects on keywords: "unleashed", "make it hurt", "no restraints", "pain"
+- Same phase structure as blitz but with 8× the parallelism
+
+### v9.0 (2026-02-20)
+- **Subprocess mode:** True OS-level parallelism via `opencode run` background processes
+- `swarm_init` accepts `executionMode="subprocess"` — spawns independent terminals
+- `swarm_collect` aggregates outputs from subprocess files
+- **Anonymous history:** `stripIdentity()` removes all model/agent names from history
+- Replaces "Claude Sonnet 4", "GPT-5.2" etc. with "a contributor"
+- **Consensus-based merge:** `swarm_merge` now includes convergence metrics
+- Stalling detection triggers bold synthesis guidance
+- High convergence triggers refinement-focused guidance
+- **Swarm agent updated:** `bash` tool enabled for subprocess spawning only
+
+### v8.0 (2026-02-20)
+- **Provider-based dynamic routing:** Workers route by provider, not model name
+- New worker agents: `worker-anthropic`, `worker-openai`, `worker-gemini`, `worker-haiku`
+- Models auto-route — no config changes when new models are added/retired
+- **Convergence metrics:** `computeConvergence()` tracks score deltas, stalling, trends
+- Included in `swarm_gate` and `swarm_status` responses
+
+### v7.0 (2026-02-20)
+- **OpenCode migration:** Moved from Copilot CLI to OpenCode for per-agent tool enforcement
+- Swarm agent physically cannot write files (enforced, not just instructed)
+- `swarm.md` agent config with explicit tool permissions
+- GitHub Copilot provider integration via device auth flow
+
 ### v6.0 (2026-02-19)
 - **MCP Server:** Converted from prose-based skill to enforced MCP tool calls
 - Server-side model diversity, phase ordering, merge enforcement, quality gates
-- 6 tools: `swarm_init`, `swarm_next`, `swarm_submit`, `swarm_merge`, `swarm_status`, `swarm_gate`
+- 8 tools: `swarm_init`, `swarm_next`, `swarm_submit`, `swarm_merge`, `swarm_status`, `swarm_gate`, `swarm_collect`, `swarm_models`
 - Anonymous history built server-side — agent never sees identity labels
-- SKILL.md reduced from 399→72 lines (thin wrapper pointing to MCP tools)
 - Deployed via ToolHive (`thv run`)
 
 ### v5.2 (2026-02-19)
