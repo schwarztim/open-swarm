@@ -123,7 +123,10 @@ export function handleSwarmInit(args: {
   // Seed default workstreams for parallel tiers
   const hasParallel = phaseDefs.some((p) => p.parallel);
   if (hasParallel && session.workstreams.length === 0) {
-    const count = fileCount && fileCount > 20 ? 4 : 2;
+    let count = 2;
+    if (tier === 'unleashed') count = 8;
+    else if (tier === 'blitz' || (fileCount && fileCount > 20)) count = 4;
+    
     for (let i = 0; i < count; i++) {
       session.workstreams.push({
         id: `ws-${i}`,

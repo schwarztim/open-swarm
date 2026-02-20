@@ -29,7 +29,7 @@ const TOOLS = [
       type: 'object' as const,
       properties: {
         task: { type: 'string', description: 'Description of the task to swarm on' },
-        tier: { type: 'string', enum: ['duo', 'trio', 'full-swarm', 'blitz', 'debate'], description: 'Swarm tier (auto-selected if omitted)' },
+        tier: { type: 'string', enum: ['duo', 'trio', 'full-swarm', 'blitz', 'debate', 'unleashed'], description: 'Swarm tier (auto-selected if omitted)' },
         fileCount: { type: 'number', description: 'Approximate number of files involved (helps tier selection)' },
       },
       required: ['task'],

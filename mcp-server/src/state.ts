@@ -1,6 +1,6 @@
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type Tier = 'duo' | 'trio' | 'full-swarm' | 'blitz' | 'debate';
+export type Tier = 'duo' | 'trio' | 'full-swarm' | 'blitz' | 'debate' | 'unleashed';
 export type ExecutionMode = 'task' | 'subprocess';
 
 export interface PhaseDefinition {
@@ -240,6 +240,19 @@ export const TIER_PHASES: Record<Tier, PhaseDefinition[]> = {
     def('merge_debate', 'general-purpose', getFastModel(), 'sync', false, false, false),
     def('synthesize', 'architect', getSynthesizerModel(), 'sync', false, false, false),
   ],
+  unleashed: [
+    def('recon', 'explore', getFastModel(), 'background', true, true, false),
+    def('merge_recon', 'general-purpose', getFastModel(), 'sync', false, false, false),
+    def('triage', 'architect', getArchitectModel(), 'sync', false, false, false),
+    def('build', 'clean-code', getCoderModel(0), 'background', true, true, false),
+    def('merge_build', 'general-purpose', getFastModel(), 'sync', false, false, false),
+    def('review', 'code-review', getCriticModel(0), 'background', true, true, false),
+    def('merge_review', 'general-purpose', getFastModel(), 'sync', false, false, false),
+    def('gate', 'task', '', 'sync', false, false, true),
+    def('integration', 'task', '', 'sync', false, false, false),
+    def('validate', 'task', '', 'sync', false, false, false),
+    def('synthesize', 'architect', getSynthesizerModel(), 'sync', false, false, false),
+  ],
 };
 
 // ── Session Store ──────────────────────────────────────────────────────
@@ -367,6 +380,8 @@ export function selectTier(taskDescription: string, fileCount?: number): Tier {
   if (/massive|full app|entire codebase/.test(lower)) return 'blitz';
 
   if (/debate|decide|which approach|tradeoff/.test(lower)) return 'debate';
+
+  if (/unleashed|max|pedal to the metal|no restraints/.test(lower)) return 'unleashed';
 
   if (/refactor|security|architecture|complex/.test(lower)) return 'full-swarm';
 
