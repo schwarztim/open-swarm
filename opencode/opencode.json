@@ -206,7 +206,7 @@
       "name": "manager-openai",
       "description": "L2 Agent Manager (OpenAI) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
       "mode": "subagent",
-      "model": "github-copilot/gpt-5.3-codex",
+      "model": "github-copilot/gpt-5.2-codex",
       "temperature": 0.2,
       "prompt": "{file:~/.config/opencode/agents/manager.md}",
       "tools": {

@@ -181,7 +181,6 @@ const ALL_MODELS: ModelEntry[] = [
   { id: 'claude-sonnet-4.6',     tier: 'standard', provider: 'anthropic' },
   { id: 'claude-sonnet-4.5',     tier: 'standard', provider: 'anthropic' },
   { id: 'claude-sonnet-4',       tier: 'standard', provider: 'anthropic' },
-  { id: 'gpt-5.3-codex',         tier: 'standard', provider: 'openai' },
   { id: 'gpt-5.2-codex',         tier: 'standard', provider: 'openai' },
   { id: 'gpt-5.1-codex',         tier: 'standard', provider: 'openai' },
   { id: 'gpt-5.2',               tier: 'standard', provider: 'openai' },
@@ -209,8 +208,7 @@ const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
   // OpenAI premium
   'gpt-5.1-codex-max':   ['gpt-5.3-codex', 'gpt-5.2-codex', 'claude-opus-4.6', 'claude-opus-4.5'],
   // OpenAI standard
-  'gpt-5.3-codex':       ['gpt-5.2-codex', 'gpt-5.1-codex', 'gpt-5.2', 'claude-sonnet-4.6', 'claude-sonnet-4.5'],
-  'gpt-5.2-codex':       ['gpt-5.3-codex', 'gpt-5.1-codex', 'gpt-5.2', 'claude-sonnet-4.5', 'claude-sonnet-4'],
+  'gpt-5.2-codex':       ['gpt-5.1-codex', 'gpt-5.2', 'gpt-5.1', 'claude-sonnet-4.5', 'claude-sonnet-4'],
   'gpt-5.1-codex':       ['gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.1', 'claude-sonnet-4', 'claude-sonnet-4.5'],
   'gpt-5.2':             ['gpt-5.1', 'gpt-5.2-codex', 'gpt-5.1-codex', 'claude-sonnet-4.5'],
   'gpt-5.1':             ['gpt-5.2', 'gpt-5.1-codex', 'gpt-5.2-codex', 'claude-sonnet-4'],
@@ -756,10 +754,10 @@ export function getBlockedWorkstreams(session: SwarmSession): Workstream[] {
 
 const MANAGER_AGENT_DEFS: Array<{ agent: string; model: string; provider: string }> = [
   { agent: 'manager-anthropic', model: 'claude-sonnet-4.5',    provider: 'anthropic' },
-  { agent: 'manager-openai',    model: 'gpt-5.3-codex',        provider: 'openai' },
+  { agent: 'manager-openai',    model: 'gpt-5.2-codex',        provider: 'openai' },
   { agent: 'manager-gemini',    model: 'gemini-3-pro-preview',  provider: 'google' },
   { agent: 'manager-anthropic', model: 'claude-sonnet-4',       provider: 'anthropic' },
-  { agent: 'manager-openai',    model: 'gpt-5.2-codex',        provider: 'openai' },
+  { agent: 'manager-openai',    model: 'gpt-5.1-codex',        provider: 'openai' },
 ];
 
 /** Get a validated manager definition — resolves model with fallback */
