@@ -15,14 +15,6 @@ tools:
   - task
   - read_agent
   - list_agents
-  - open-swarm-swarm_init
-  - open-swarm-swarm_next
-  - open-swarm-swarm_submit
-  - open-swarm-swarm_merge
-  - open-swarm-swarm_status
-  - open-swarm-swarm_gate
-  - open-swarm-swarm_collect
-  - open-swarm-swarm_models
 promptParts:
   includeAISafety: true
   includeToolInstructions: true
