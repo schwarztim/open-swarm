@@ -351,3 +351,39 @@ export function parseDebateEvalOutput(evalOutput: string): {
     summary: summaryMatch ? summaryMatch[1].trim() : 'Debate evaluation complete',
   };
 }
+
+// ── Drift Scoring ─────────────────────────────────────────────────────
+// Score how well a worker's output aligns with the original task goal.
+
+export function generateDriftCheckPrompt(
+  taskGoal: string,
+  output: string,
+): string {
+  return `You are an alignment checker. Evaluate whether the worker output stays on-task.
+
+## ORIGINAL TASK GOAL
+${taskGoal}
+
+## WORKER OUTPUT
+${output.substring(0, 3000)}
+
+## EVALUATION
+Score how well the output aligns with the original task:
+- 0.0-0.3: Severely off-topic. Output addresses different concerns than the task.
+- 0.3-0.6: Partially aligned. Some relevant work but significant drift.
+- 0.6-0.8: Mostly aligned. Addresses the task with minor tangential work.
+- 0.8-1.0: Fully aligned. Output directly addresses every aspect of the task.
+
+Identify specific drift signals:
+- Scope creep (doing more than asked)
+- Topic drift (addressing different concerns)
+- Incomplete coverage (missing key requirements)
+
+OUTPUT FORMAT:
+ALIGNMENT: X.XX
+DRIFT_SIGNALS:
+- <signal 1>
+- <signal 2>
+DRIFT_SUMMARY: <one-line assessment>
+`;
+}

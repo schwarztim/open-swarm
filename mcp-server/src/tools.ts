@@ -12,6 +12,13 @@ import {
   type DebateTrigger,
   type DebateContribution,
   type DebateParticipant,
+  type WorkerRole,
+  type TaskComplexity,
+  type WorkerMode,
+  type FileClaim,
+  type DriftCheck,
+  type PatternEntry,
+  type ConsensusState,
   TIER_PHASES,
   RATE_PRESETS,
   resolveRateLimit,
@@ -39,6 +46,10 @@ import {
   getModelProvider,
   getManagerAgentName,
   getWorkerAgentName,
+  getRoleAgentName,
+  classifyTaskComplexity,
+  inferWorkerRole,
+  getModelForComplexity,
   premiumPool,
   coderPool,
   criticPool,
@@ -64,6 +75,19 @@ import {
   buildContrarianPrompt,
   createValidationCheckpoint,
   submitValidation,
+  claimFiles,
+  releaseFiles,
+  checkFileClaims,
+  getClaimsForWorkstream,
+  getAllActiveClaims,
+  checkDrift,
+  storePattern,
+  searchPatterns,
+  buildPatternContext,
+  createConsensus,
+  getConsensus,
+  submitProposal,
+  evaluateConsensus,
 } from './state.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -1809,4 +1833,323 @@ function handleDebateValidate(
     },
     nextAction,
   });
+}
+
+// ── swarm_claim ───────────────────────────────────────────────────────
+// File ownership claims to prevent conflicts between workers.
+
+export function handleSwarmClaim(args: {
+  sessionId: string;
+  action: 'claim' | 'release' | 'check' | 'list';
+  paths?: string[];
+  workstreamId?: string;
+  groupId?: string;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  switch (args.action) {
+    case 'claim': {
+      if (!args.paths || args.paths.length === 0) return err('paths required for claim action');
+      if (!args.workstreamId) return err('workstreamId required for claim action');
+      if (!args.groupId) return err('groupId required for claim action');
+
+      const result = claimFiles(session, args.paths, args.workstreamId, args.groupId);
+
+      if (result.conflicts.length > 0) {
+        postToBoard(
+          session,
+          args.workstreamId,
+          'finding',
+          `⚠️ File claim conflicts: ${result.conflicts.map(c => `${c.path} (owned by ${c.owner})`).join(', ')}`,
+          'L3',
+          args.groupId,
+        );
+      }
+
+      return ok({
+        claimed: result.claimed,
+        conflicts: result.conflicts,
+        totalActiveClaims: getAllActiveClaims(session).length,
+        nextAction: result.conflicts.length > 0
+          ? `⚠️ ${result.conflicts.length} file(s) already claimed by other workstreams. Coordinate with the owners or ask your L2 manager to resolve.`
+          : `✅ ${result.claimed.length} file(s) claimed for ${args.workstreamId}.`,
+      });
+    }
+
+    case 'release': {
+      if (!args.paths || args.paths.length === 0) return err('paths required for release action');
+      if (!args.workstreamId) return err('workstreamId required for release action');
+
+      const released = releaseFiles(session, args.paths, args.workstreamId);
+      return ok({
+        released,
+        nextAction: `✅ ${released.length} file(s) released by ${args.workstreamId}.`,
+      });
+    }
+
+    case 'check': {
+      if (!args.paths || args.paths.length === 0) return err('paths required for check action');
+
+      const claims = checkFileClaims(session, args.paths);
+      return ok({
+        claims,
+        unclaimed: args.paths.filter(p => !claims.find(c => c.path === p)),
+        nextAction: claims.length > 0
+          ? `${claims.length} file(s) are claimed: ${claims.map(c => `${c.path} → ${c.claimedBy}`).join(', ')}`
+          : `All ${args.paths.length} file(s) are unclaimed and available.`,
+      });
+    }
+
+    case 'list': {
+      const claims = getAllActiveClaims(session);
+      const byGroup = new Map<string, typeof claims>();
+      for (const c of claims) {
+        const arr = byGroup.get(c.groupId) ?? [];
+        arr.push(c);
+        byGroup.set(c.groupId, arr);
+      }
+
+      return ok({
+        totalClaims: claims.length,
+        byGroup: Object.fromEntries(byGroup),
+        nextAction: `${claims.length} active file claim(s) across ${byGroup.size} group(s).`,
+      });
+    }
+
+    default:
+      return err(`Unknown claim action: ${args.action}`);
+  }
+}
+
+// ── swarm_memory ──────────────────────────────────────────────────────
+// Pattern memory for workers to store and retrieve successful approaches.
+
+export function handleSwarmMemory(args: {
+  sessionId: string;
+  action: 'search' | 'store' | 'list';
+  query?: string;
+  taskType?: string;
+  approach?: string;
+  filesInvolved?: string[];
+  qualityScore?: number;
+  keyDecisions?: string[];
+  tags?: string[];
+  limit?: number;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  switch (args.action) {
+    case 'search': {
+      if (!args.query) return err('query required for search action');
+
+      const patterns = searchPatterns(session, args.query, args.limit ?? 5);
+      const context = buildPatternContext(patterns);
+
+      return ok({
+        matchCount: patterns.length,
+        patterns: patterns.map(p => ({
+          id: p.id,
+          taskType: p.taskType,
+          approach: p.approach,
+          qualityScore: p.qualityScore,
+          tags: p.tags,
+          keyDecisions: p.keyDecisions,
+          filesInvolved: p.filesInvolved,
+        })),
+        injectionContext: context,
+        nextAction: patterns.length > 0
+          ? `Found ${patterns.length} relevant pattern(s). Inject the context into worker prompts for guidance.`
+          : `No matching patterns found. Worker will start fresh.`,
+      });
+    }
+
+    case 'store': {
+      if (!args.taskType) return err('taskType required for store action');
+      if (!args.approach) return err('approach required for store action');
+      if (!args.qualityScore) return err('qualityScore required for store action');
+      if (args.qualityScore < 8) {
+        return err(`Quality score must be ≥8 to store pattern (got ${args.qualityScore}). Only high-quality patterns are stored.`);
+      }
+
+      const entry = storePattern(
+        session,
+        args.taskType,
+        args.approach,
+        args.filesInvolved ?? [],
+        args.qualityScore,
+        args.keyDecisions ?? [],
+        args.tags ?? [],
+      );
+
+      return ok({
+        patternId: entry.id,
+        taskType: entry.taskType,
+        qualityScore: entry.qualityScore,
+        nextAction: `✅ Pattern "${entry.id}" stored (score: ${entry.qualityScore}/10). Available for future workers.`,
+      });
+    }
+
+    case 'list': {
+      return ok({
+        totalPatterns: session.patterns.length,
+        patterns: session.patterns.map(p => ({
+          id: p.id,
+          taskType: p.taskType,
+          qualityScore: p.qualityScore,
+          tags: p.tags,
+        })),
+        nextAction: `${session.patterns.length} pattern(s) in memory.`,
+      });
+    }
+
+    default:
+      return err(`Unknown memory action: ${args.action}`);
+  }
+}
+
+// ── swarm_consensus ───────────────────────────────────────────────────
+// Lightweight worker consensus for complex tasks.
+
+export function handleSwarmConsensus(args: {
+  sessionId: string;
+  action: 'start' | 'propose' | 'evaluate' | 'status';
+  groupId?: string;
+  topic?: string;
+  consensusId?: string;
+  workstreamId?: string;
+  slotId?: string;
+  model?: string;
+  content?: string;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  switch (args.action) {
+    case 'start': {
+      if (!args.groupId) return err('groupId required for start action');
+      if (!args.topic) return err('topic required for start action');
+
+      const consensus = createConsensus(session, args.groupId, args.topic);
+
+      postToBoard(
+        session,
+        args.groupId,
+        'status',
+        `🗳️ Consensus session started: "${args.topic}" (${consensus.id})`,
+        'L2',
+        args.groupId,
+      );
+
+      return ok({
+        consensusId: consensus.id,
+        groupId: args.groupId,
+        topic: args.topic,
+        status: 'collecting',
+        nextAction: [
+          `Consensus session "${consensus.id}" created.`,
+          `Spawn 2-3 workers in proposal mode (mode="propose") with the topic.`,
+          `Each worker submits via swarm_consensus(action="propose", consensusId="${consensus.id}", slotId="proposer-N", content=<proposal>)`,
+          `After all proposals are in, call swarm_consensus(action="evaluate", consensusId="${consensus.id}")`,
+        ].join('\n'),
+      });
+    }
+
+    case 'propose': {
+      if (!args.consensusId) return err('consensusId required for propose action');
+      if (!args.content) return err('content required for propose action');
+      if (!args.slotId) return err('slotId required for propose action');
+
+      const consensus = getConsensus(session, args.consensusId);
+      if (!consensus) return err(`Consensus not found: ${args.consensusId}`);
+      if (consensus.status !== 'collecting') return err(`Consensus is ${consensus.status}, not accepting proposals`);
+
+      submitProposal(
+        consensus,
+        args.workstreamId ?? 'unknown',
+        args.slotId,
+        args.model ?? 'unknown',
+        args.content,
+      );
+
+      return ok({
+        consensusId: consensus.id,
+        proposalCount: consensus.proposals.length,
+        slotId: args.slotId,
+        nextAction: `Proposal from ${args.slotId} recorded (${consensus.proposals.length} total). Submit more or call evaluate.`,
+      });
+    }
+
+    case 'evaluate': {
+      if (!args.consensusId) return err('consensusId required for evaluate action');
+
+      const consensus = getConsensus(session, args.consensusId);
+      if (!consensus) return err(`Consensus not found: ${args.consensusId}`);
+
+      const result = evaluateConsensus(consensus);
+
+      postToBoard(
+        session,
+        consensus.groupId,
+        'decision',
+        `🗳️ Consensus "${consensus.id}": convergence=${(result.convergenceScore * 100).toFixed(0)}% → ${result.recommendation}`,
+        'L2',
+        consensus.groupId,
+      );
+
+      let nextAction: string;
+      if (result.recommendation === 'implement-best') {
+        const best = consensus.proposals.reduce((a, b) =>
+          (a.content.length > b.content.length) ? a : b
+        );
+        consensus.selectedProposal = best.slotId;
+        nextAction = [
+          `✅ Proposals converged (${(result.convergenceScore * 100).toFixed(0)}%).`,
+          `Best proposal: ${best.slotId}. Dispatch that worker in implement mode.`,
+        ].join('\n');
+      } else if (result.recommendation === 'debate') {
+        consensus.status = 'escalated';
+        nextAction = [
+          `⚠️ Proposals diverged (${(result.convergenceScore * 100).toFixed(0)}%).`,
+          `Escalate to L2 debate protocol: swarm_debate(action="start", topic="${consensus.topic}", trigger="disagreement", groupId="${consensus.groupId}")`,
+        ].join('\n');
+      } else {
+        nextAction = `Need more proposals before evaluation (currently ${consensus.proposals.length}).`;
+      }
+
+      return ok({
+        consensusId: consensus.id,
+        convergenceScore: result.convergenceScore,
+        recommendation: result.recommendation,
+        proposalCount: consensus.proposals.length,
+        selectedProposal: consensus.selectedProposal,
+        nextAction,
+      });
+    }
+
+    case 'status': {
+      if (!args.consensusId) return err('consensusId required for status action');
+
+      const consensus = getConsensus(session, args.consensusId);
+      if (!consensus) return err(`Consensus not found: ${args.consensusId}`);
+
+      return ok({
+        consensusId: consensus.id,
+        groupId: consensus.groupId,
+        topic: consensus.topic,
+        status: consensus.status,
+        proposalCount: consensus.proposals.length,
+        convergenceScore: consensus.convergenceScore,
+        selectedProposal: consensus.selectedProposal,
+        proposals: consensus.proposals.map(p => ({
+          slotId: p.slotId,
+          contentPreview: p.content.substring(0, 200) + (p.content.length > 200 ? '...' : ''),
+        })),
+      });
+    }
+
+    default:
+      return err(`Unknown consensus action: ${args.action}`);
+  }
 }

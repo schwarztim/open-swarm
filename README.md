@@ -842,6 +842,9 @@ source ~/.zshrc
 | `swarm_relay` | **NEW** — Post findings/blockers/decisions to the shared board |
 | `swarm_board` | **NEW** — Read board state, check ready/blocked workstreams |
 | `swarm_debate` | **NEW** — Structured multi-round debates with convergence + sycophancy detection |
+| `swarm_claim` | **NEW** — File ownership claims to prevent worker conflicts |
+| `swarm_memory` | **NEW** — Pattern memory: store/search successful approaches |
+| `swarm_consensus` | **NEW** — Lightweight worker consensus for complex decisions |
 
 ### Invocation
 
@@ -888,6 +891,76 @@ Copilot selects **Debate** — two proposers argue for each approach with differ
 > *"Swarm this: ~/Projects/my-platform — there's a lot of unwired logic and stubs that need to be completed"*
 
 Copilot selects **Blitz** — 5 parallel explorers (structure/patterns/deps/gaps/domain) recon the codebase, Architect triages into P0/P1/P2 workstreams, N parallel coders build simultaneously with cross-awareness of each other's workstreams, parallel critics review in batches, integration check catches cross-workstream conflicts, Synthesizer produces confidence score.
+
+---
+
+## 🎯 L3 Worker Specialization (NEW — v15.0)
+
+Workers are now **domain-specialized** with roles AND providers (2D matrix):
+
+```
+              Anthropic    OpenAI       Gemini       Fast
+  coder       ✓            ✓            ✓            ✓ (haiku)
+  tester      ✓            ✓            ✓            -
+  reviewer    ✓ (critic)   ✓ (critic)   ✓ (critic)   -
+  security    ✓            ✓            -            -
+  architect   ✓ (premium)  ✓ (premium)  -            -
+  documenter  -            -            -            ✓ (fast)
+  debugger    ✓            ✓            ✓            -
+```
+
+### Task Complexity Router
+
+| Complexity | Worker Pool | Model Tier | Use Case |
+|-----------|------------|------------|----------|
+| trivial | fast pool | haiku/gpt-4.1 | Doc updates, renames |
+| standard | coder pool | sonnet/gpt-5 | Feature implementation |
+| complex | premium pool | opus/gpt-5.1 | Architecture, security |
+| review | critic pool | alternating | Code review, audits |
+
+### File Claims Flow
+
+```mermaid
+sequenceDiagram
+    participant W as L3 Worker
+    participant MCP as MCP Server
+    participant S as Session Store
+
+    W->>MCP: swarm_claim(action="claim", paths=["src/auth.ts"])
+    MCP->>S: Check existing claims
+    alt File available
+        S-->>MCP: No conflicts
+        MCP-->>W: ✅ Claimed
+    else File claimed by another
+        S-->>MCP: Conflict: owned by ws-2
+        MCP-->>W: ⚠️ Conflict — coordinate with ws-2
+    end
+    Note over W: Do work...
+    W->>MCP: swarm_claim(action="release", paths=["src/auth.ts"])
+```
+
+### Worker Consensus Flow
+
+```mermaid
+sequenceDiagram
+    participant M as L2 Manager
+    participant MCP as MCP Server
+    participant W1 as Proposer 0
+    participant W2 as Proposer 1
+
+    M->>MCP: swarm_consensus(action="start", topic="DB schema approach")
+    MCP-->>M: consensusId
+    M->>W1: task(mode="propose")
+    M->>W2: task(mode="propose")
+    W1->>MCP: swarm_consensus(action="propose", content=<proposal>)
+    W2->>MCP: swarm_consensus(action="propose", content=<proposal>)
+    M->>MCP: swarm_consensus(action="evaluate")
+    alt Converged (≥60%)
+        MCP-->>M: implement-best → dispatch best proposer
+    else Diverged (<60%)
+        MCP-->>M: debate → escalate to swarm_debate
+    end
+```
 
 ---
 
@@ -984,6 +1057,25 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v15.0 (2026-02-25)
+- **L3 Worker Specialization** — Workers now have domain ROLES (coder, tester, security, architect, documenter, debugger, devops, meta-worker) in addition to provider-based model assignment
+- **Intelligent Task Router** — `classifyTaskComplexity()` routes tasks to appropriate model pools (trivial→fast, standard→coder, complex→premium, review→critic)
+- **6 new role-specific agent configs** — `worker-coder.md`, `worker-tester.md`, `worker-security.md`, `worker-architect.md`, `worker-documenter.md`, `worker-debugger.md`
+- **New `swarm_claim` tool** — File ownership system prevents worker conflicts with claim/release/check/list actions
+- **Anti-drift detection** — `checkDrift()` compares worker output against original task goal, flags scope creep and topic drift
+- **New `swarm_memory` tool** — Pattern memory: search/store/list successful approaches from prior tasks (requires score ≥8/10)
+- **New `swarm_consensus` tool** — Lightweight worker voting for complex decisions: spawn proposers, evaluate convergence, escalate to debate if diverged
+- **Self-build capability** — Meta-worker role enables the swarm to modify its own infrastructure with L1 approval gate
+- **Role-aware agent assignment** — `getRoleAgentName()` maps worker roles to role-specific agent configs
+- **2D worker matrix** — Workers characterized by Role (WHAT they do) × Provider (HOW they think)
+
+### v14.0 (2026-02-24)
+- **L2 debate protocol** with partial consensus, fast-track, devil's advocate, and post-implementation validation
+- **Partial consensus per-claim tracking** — `extractClaimsFromPositions()`, `updateClaimConsensus()`
+- **Fast-track consensus** — Skip unnecessary rounds when Round 1 converges cleanly
+- **Devil's advocate / forced dissent** — Auto-assign contrarian when early convergence detected
+- **Validation checkpoint** — Post-implementation verification reopens debate if findings diverge
 
 ### v13.0 (2026-02-20)
 - **Programmatic communication layer** — replaced prompt-based coordination with MCP server state management

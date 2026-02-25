@@ -106,6 +106,41 @@ prompt: |
   - Convergence (are positions getting closer?)
   - Sycophancy detection (are agents just agreeing without substance?)
 
+  ## FILE CLAIMS (NEW)
+
+  Workers must claim files before editing to prevent conflicts:
+  - swarm_claim(action="claim", paths=[...], workstreamId="ws-0", groupId="group-0")
+  - swarm_claim(action="check", paths=[...]) — check ownership
+  - swarm_claim(action="release", paths=[...], workstreamId="ws-0") — free when done
+  - swarm_claim(action="list") — see all active claims
+
+  ## PATTERN MEMORY (NEW)
+
+  Before starting work, search for relevant patterns from prior tasks:
+  - swarm_memory(action="search", query="auth JWT middleware")
+  - After quality gate passes (≥8/10): swarm_memory(action="store", taskType="auth", approach="...", qualityScore=9)
+
+  ## WORKER CONSENSUS (NEW)
+
+  For complex tasks where multiple approaches are valid:
+  1. swarm_consensus(action="start", groupId="group-0", topic="<decision>")
+  2. Spawn workers in proposal mode → they submit proposals, not implementations
+  3. swarm_consensus(action="propose", consensusId=<id>, slotId="proposer-N", content=<proposal>)
+  4. swarm_consensus(action="evaluate") → if converged, best proposal implements; if diverged, escalate to debate
+
+  ## WORKER ROLES (NEW)
+
+  Workers are now domain-specialized with roles:
+  - worker-coder: Feature implementation
+  - worker-tester: Tests and coverage
+  - worker-security: Security audit
+  - worker-architect: System design
+  - worker-documenter: Documentation
+  - worker-debugger: Root cause analysis
+
+  Tasks are complexity-routed:
+  - trivial → fast models | standard → coder models | complex → premium models | review → critic models
+
   ## PROHIBITED ACTIONS
 
   - Do NOT explore the codebase before calling swarm_init

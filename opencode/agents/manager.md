@@ -48,6 +48,59 @@ If your workers disagree and you CANNOT resolve it:
 - Write it to your status file immediately
 - The L1 boss will make the call
 
+## FILE CLAIMS — MANDATORY
+
+Before workers edit files, claim them to prevent conflicts:
+```
+swarm_claim(action="claim", sessionId="<id>", paths=["src/auth.ts"], workstreamId="ws-0", groupId="group-0")
+```
+
+- **Claim** files before dispatching workers
+- **Check** if files are available: `swarm_claim(action="check", paths=[...])`
+- **Release** files when done: `swarm_claim(action="release", paths=[...], workstreamId="ws-0")`
+- If a file is already claimed by another group, coordinate with that L2 manager
+
+## WORKER ROLES & TASK ROUTING
+
+Workers are now ROLE-SPECIALIZED. Match roles to subtasks:
+
+| Role | Agent Type | Best For |
+|------|-----------|----------|
+| coder | worker-coder | Feature implementation, clean code |
+| tester | worker-tester | Tests, coverage, edge cases |
+| security | worker-security | Vulnerability audit, auth review |
+| architect | worker-architect | Design, API contracts, data models |
+| documenter | worker-documenter | README, API docs, inline comments |
+| debugger | worker-debugger | Root cause analysis, bug reproduction |
+
+Task complexity determines model tier:
+- **trivial** (docs, renames) → fast models (Haiku/GPT-4.1)
+- **standard** (features, bug fixes) → coder models (Sonnet/GPT-5.x)
+- **complex** (security, architecture) → premium models (Opus/GPT-5.1-max)
+- **review** (audits, checks) → critic models (alternating)
+
+## WORKER CONSENSUS (for complex decisions)
+
+When a subtask involves a major design decision with multiple valid approaches:
+
+1. Start consensus: `swarm_consensus(action="start", groupId="group-0", topic="<decision>")`
+2. Spawn 2-3 workers in **proposal mode** — they submit proposals, not implementations
+3. Each worker submits: `swarm_consensus(action="propose", consensusId="<id>", slotId="proposer-N", content="<proposal>")`
+4. Evaluate: `swarm_consensus(action="evaluate", consensusId="<id>")`
+5. If converged → best-scored worker implements. If diverged → escalate to debate protocol.
+
+## PATTERN MEMORY
+
+Before starting work, check if similar tasks have been done before:
+```
+swarm_memory(action="search", sessionId="<id>", query="authentication JWT middleware")
+```
+
+After quality gate passes (score ≥8), store the successful pattern:
+```
+swarm_memory(action="store", sessionId="<id>", taskType="auth-implementation", approach="JWT with refresh tokens", qualityScore=9, tags=["auth", "jwt"])
+```
+
 ## STATUS UPDATES — MANDATORY
 
 The boss monitors a global status board. You MUST update at every milestone:

@@ -19,6 +19,9 @@ import {
   handleSwarmDispatch,
   handleSwarmThrottle,
   handleSwarmDebate,
+  handleSwarmClaim,
+  handleSwarmMemory,
+  handleSwarmConsensus,
 } from './tools.js';
 
 const server = new Server(
@@ -244,6 +247,76 @@ const TOOLS = [
       required: ['sessionId', 'action'],
     },
   },
+  {
+    name: 'swarm_claim',
+    description: 'Manage file ownership claims. Workers claim files before editing, preventing conflicts. Actions: claim (reserve files), release (free files), check (see who owns files), list (all active claims).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        action: {
+          type: 'string',
+          enum: ['claim', 'release', 'check', 'list'],
+          description: 'Action: claim=reserve files, release=free files, check=who owns files, list=all active claims',
+        },
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'File paths to claim/release/check',
+        },
+        workstreamId: { type: 'string', description: 'Workstream ID claiming the files' },
+        groupId: { type: 'string', description: 'Agent group ID' },
+      },
+      required: ['sessionId', 'action'],
+    },
+  },
+  {
+    name: 'swarm_memory',
+    description: 'Store and retrieve successful patterns from prior tasks. Workers search before starting and store after succeeding. Actions: search (find relevant patterns), store (save a new pattern), list (view all patterns).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        action: {
+          type: 'string',
+          enum: ['search', 'store', 'list'],
+          description: 'Action: search=find patterns, store=save a new pattern, list=view all',
+        },
+        query: { type: 'string', description: 'Search query for finding relevant patterns (for action="search")' },
+        taskType: { type: 'string', description: 'Task type label, e.g. "auth-implementation" (for action="store")' },
+        approach: { type: 'string', description: 'Description of the approach used (for action="store")' },
+        filesInvolved: { type: 'array', items: { type: 'string' }, description: 'Files touched (for action="store")' },
+        qualityScore: { type: 'number', description: 'Quality score from gate (must be ≥8 to store) (for action="store")' },
+        keyDecisions: { type: 'array', items: { type: 'string' }, description: 'Key decisions made (for action="store")' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Searchable tags (for action="store")' },
+        limit: { type: 'number', description: 'Max results to return (for action="search", default: 5)' },
+      },
+      required: ['sessionId', 'action'],
+    },
+  },
+  {
+    name: 'swarm_consensus',
+    description: 'Lightweight worker consensus for complex tasks. L2 managers spawn multiple workers in proposal mode, collect proposals, then evaluate convergence. If proposals converge, best-scored implements. If diverged, escalate to L2 debate. Actions: start (create consensus session), propose (submit a proposal), evaluate (check convergence and decide), status (view state).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        action: {
+          type: 'string',
+          enum: ['start', 'propose', 'evaluate', 'status'],
+          description: 'Action: start=create session, propose=submit proposal, evaluate=check convergence, status=view state',
+        },
+        groupId: { type: 'string', description: 'Agent group running the consensus (for action="start")' },
+        topic: { type: 'string', description: 'What to reach consensus on (for action="start")' },
+        consensusId: { type: 'string', description: 'Consensus session ID (returned by action="start")' },
+        workstreamId: { type: 'string', description: 'Workstream submitting proposal (for action="propose")' },
+        slotId: { type: 'string', description: 'Proposer slot ID "proposer-0" etc. (for action="propose")' },
+        model: { type: 'string', description: 'Model that generated the proposal (for action="propose")' },
+        content: { type: 'string', description: 'Proposal content (for action="propose")' },
+      },
+      required: ['sessionId', 'action'],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -278,6 +351,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmThrottle(args as Parameters<typeof handleSwarmThrottle>[0]);
     case 'swarm_debate':
       return handleSwarmDebate(args as Parameters<typeof handleSwarmDebate>[0]);
+    case 'swarm_claim':
+      return handleSwarmClaim(args as Parameters<typeof handleSwarmClaim>[0]);
+    case 'swarm_memory':
+      return handleSwarmMemory(args as Parameters<typeof handleSwarmMemory>[0]);
+    case 'swarm_consensus':
+      return handleSwarmConsensus(args as Parameters<typeof handleSwarmConsensus>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }

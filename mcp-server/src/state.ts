@@ -4,6 +4,83 @@ export type Tier = 'duo' | 'trio' | 'full-swarm' | 'blitz' | 'debate' | 'unleash
 export type ExecutionMode = 'task' | 'subprocess';
 export type RatePreset = 'conservative' | 'standard' | 'aggressive' | 'max' | 'unlimited';
 
+// ── L3 Worker Specialization Types ────────────────────────────────────
+// Workers have ROLES (domain) AND PROVIDERS (model), creating a 2D matrix.
+// Role defines WHAT they do, provider defines HOW they think.
+
+export type WorkerRole =
+  | 'coder'       // Feature implementation, clean code
+  | 'tester'      // Unit/integration tests, coverage
+  | 'reviewer'    // Code review, quality checks
+  | 'security'    // Security audit, vulnerability scanning
+  | 'architect'   // System design, API contracts
+  | 'documenter'  // README, API docs, inline comments
+  | 'debugger'    // Root cause analysis, bug reproduction
+  | 'devops'      // CI/CD, deployment, infrastructure
+  | 'meta-worker'; // Self-build: can modify open-swarm itself
+
+export type TaskComplexity = 'trivial' | 'standard' | 'complex' | 'review';
+
+export type WorkerMode = 'implement' | 'propose'; // propose = consensus mode
+
+// ── File Claims & Anti-Drift Types ────────────────────────────────────
+// File ownership system prevents conflicts between workers.
+
+export interface FileClaim {
+  path: string;
+  claimedBy: string;     // workstream ID
+  groupId: string;        // agent group
+  claimedAt: number;
+  released: boolean;
+}
+
+export interface DriftCheck {
+  taskGoal: string;       // Original assignment
+  outputSummary: string;  // What the worker produced
+  alignmentScore: number; // 0-1: how well output matches goal
+  driftSignals: string[]; // What went off-track
+}
+
+// ── Pattern Memory Types ──────────────────────────────────────────────
+// Workers store successful patterns and retrieve them at task start.
+
+export interface PatternEntry {
+  id: string;
+  taskType: string;        // e.g., "auth-implementation", "api-endpoint"
+  approach: string;        // What approach was used
+  filesInvolved: string[]; // Which files were touched
+  qualityScore: number;    // Score from quality gate (must be ≥8)
+  keyDecisions: string[];  // Important decisions made
+  tags: string[];          // Searchable tags
+  createdAt: number;
+  sessionId: string;       // Which session created this
+}
+
+// ── Worker Consensus Types ────────────────────────────────────────────
+// For complex tasks, L2 manager can request worker consensus before implementation.
+
+export interface ConsensusProposal {
+  workstreamId: string;
+  slotId: string;          // "proposer-0", "proposer-1"
+  model: string;
+  content: string;
+  score?: number;
+  submittedAt: number;
+}
+
+export interface ConsensusState {
+  id: string;
+  sessionId: string;
+  groupId: string;
+  topic: string;
+  proposals: ConsensusProposal[];
+  convergenceScore?: number;
+  selectedProposal?: string; // slotId of winner
+  status: 'collecting' | 'evaluating' | 'decided' | 'escalated';
+  createdAt: number;
+  resolvedAt?: number;
+}
+
 // ── Debate Protocol Types (L2 Manager Debate) ─────────────────────────
 // Based on Agent-Skills multi-agent-patterns: debate protocols, adversarial
 // critique, weighted voting, and sycophancy detection.
@@ -258,6 +335,9 @@ export interface WorkerSlot {
   model: string;        // model for this worker
   description: string;  // what this worker should do
   files: string[];      // files assigned
+  role: WorkerRole;     // domain specialization (coder, tester, etc.)
+  mode: WorkerMode;     // implement (default) or propose (consensus mode)
+  complexity?: TaskComplexity; // task complexity classification
 }
 
 export interface HistoryEntry {
@@ -285,7 +365,10 @@ export interface SwarmSession {
   history: HistoryEntry[];
   rounds: RoundRecord[];
   board: BoardMessage[]; // programmatic message board
-  debates: DebateState[]; // NEW: Active and completed debates
+  debates: DebateState[]; // Active and completed debates
+  claims: FileClaim[];    // File ownership claims
+  patterns: PatternEntry[]; // Pattern memory store
+  consensuses: ConsensusState[]; // Worker consensus sessions
   promptStore: Map<string, string>; // server-side prompt storage to avoid LLM output truncation
   maxLoops: number;
   concurrency: number; // max simultaneous L2 managers (0 = unlimited)
@@ -615,6 +698,9 @@ export function createSession(tier: Tier, task: string, executionMode: Execution
     rounds: [],
     board: [],
     debates: [],
+    claims: [],
+    patterns: [],
+    consensuses: [],
     promptStore: new Map(),
     maxLoops: 3,
     concurrency: resolveRateLimit(concurrency),
@@ -943,6 +1029,87 @@ export function getWorkerAgentName(modelId: string): string {
 }
 
 /**
+ * Get the role-specific agent name for a worker.
+ * If a role-specific agent config exists (e.g., worker-coder, worker-tester),
+ * prefer it. Otherwise fall back to provider-based agent name.
+ */
+export function getRoleAgentName(role: WorkerRole, modelId: string): string {
+  // Role-specific agents take priority when available
+  const roleAgents: Record<WorkerRole, string> = {
+    'coder': 'worker-coder',
+    'tester': 'worker-tester',
+    'reviewer': 'worker', // reviewers use generic + critic model
+    'security': 'worker-security',
+    'architect': 'worker-architect',
+    'documenter': 'worker-documenter',
+    'debugger': 'worker-debugger',
+    'devops': 'worker',   // uses generic worker (no dedicated agent yet)
+    'meta-worker': 'worker', // meta-workers use generic + special permissions
+  };
+  return roleAgents[role] ?? getWorkerAgentName(modelId);
+}
+
+/**
+ * Classify a task description into a complexity level.
+ * Used by L2 managers to route tasks to appropriate worker pools.
+ */
+export function classifyTaskComplexity(description: string, files: string[]): TaskComplexity {
+  const lower = description.toLowerCase();
+
+  // Review tasks
+  if (/\breview\b|\baudit\b|\bcheck\b|\binspect\b|\bvalidate\b/.test(lower)) {
+    return 'review';
+  }
+
+  // Complex: security, architecture, multi-system, performance
+  if (/\bsecurity\b|\bvulnerab|\barchitect|\bdesign\b|\bscalabil|\bperformance\b|\bmigrat|\brefactor\b/.test(lower)) {
+    return 'complex';
+  }
+
+  // Complex: many files or cross-cutting concerns
+  if (files.length > 5) {
+    return 'complex';
+  }
+
+  // Trivial: docs, renames, config, simple updates
+  if (/\bdoc\b|\breadme\b|\bcomment\b|\brename\b|\bconfig\b|\bformat\b|\btypo\b|\bfix\s+typo\b/.test(lower)) {
+    return 'trivial';
+  }
+
+  // Standard: everything else (feature impl, bug fixes, etc.)
+  return 'standard';
+}
+
+/**
+ * Infer the best worker role for a task based on its description.
+ */
+export function inferWorkerRole(description: string): WorkerRole {
+  const lower = description.toLowerCase();
+
+  if (/\btest\b|\bspec\b|\bcoverage\b|\bunit test\b|\bintegration test\b/.test(lower)) return 'tester';
+  if (/\breview\b|\baudit\b|\bcode review\b|\bquality\b/.test(lower)) return 'reviewer';
+  if (/\bsecurity\b|\bvulnerab|\bauth\b|\bencrypt\b|\bsanitiz|\binjection\b/.test(lower)) return 'security';
+  if (/\barchitect|\bdesign\b|\bapi contract\b|\bschema\b|\bdata model\b/.test(lower)) return 'architect';
+  if (/\bdoc\b|\breadme\b|\bchangelog\b|\bcomment\b|\bdiagram\b/.test(lower)) return 'documenter';
+  if (/\bdebug\b|\broot cause\b|\bbisect\b|\breproducg?\b|\bstack trace\b|\bfix\b.*\bbug\b/.test(lower)) return 'debugger';
+  if (/\bdeploy\b|\bci\/cd\b|\bdocker\b|\bpipeline\b|\binfra\b|\bterraform\b/.test(lower)) return 'devops';
+
+  return 'coder'; // default role
+}
+
+/**
+ * Get the model pool appropriate for a task complexity level.
+ */
+export function getModelForComplexity(complexity: TaskComplexity, index: number): string {
+  switch (complexity) {
+    case 'trivial':  return getFastModel(index);
+    case 'standard': return getCoderModel(index);
+    case 'complex':  return premiumPool.length > 0 ? premiumPool[index % premiumPool.length] : getCoderModel(index);
+    case 'review':   return getCriticModel(index);
+  }
+}
+
+/**
  * Group workstreams into L2 agent groups.
  * Target: 2-4 workers per manager. Managers rotate across providers.
  */
@@ -970,13 +1137,21 @@ export function groupWorkstreams(session: SwarmSession): AgentGroup[] {
       groupWorkstreams.length,
     );
 
-    const workerSlots: WorkerSlot[] = groupWorkstreams.map((ws, i) => ({
-      workstreamId: ws.id,
-      agentType: getWorkerAgentName(workerModels[i]),
-      model: workerModels[i],
-      description: ws.description,
-      files: ws.files,
-    }));
+    const workerSlots: WorkerSlot[] = groupWorkstreams.map((ws, i) => {
+      const role = inferWorkerRole(ws.description);
+      const complexity = classifyTaskComplexity(ws.description, ws.files);
+      const model = resolveModel(getModelForComplexity(complexity, i));
+      return {
+        workstreamId: ws.id,
+        agentType: getRoleAgentName(role, model),
+        model,
+        description: ws.description,
+        files: ws.files,
+        role,
+        mode: 'implement' as WorkerMode,
+        complexity,
+      };
+    });
 
     groups.push({
       id: `group-${g}`,
@@ -2204,4 +2379,268 @@ export function submitValidation(
   }
 
   return { checkpoint: debate.validation, reopened, newDebateId };
+}
+
+// ── File Claims System ────────────────────────────────────────────────
+// Prevents file conflicts between workers by tracking ownership.
+
+export function claimFiles(
+  session: SwarmSession,
+  paths: string[],
+  claimedBy: string,
+  groupId: string,
+): { claimed: string[]; conflicts: Array<{ path: string; owner: string }> } {
+  const claimed: string[] = [];
+  const conflicts: Array<{ path: string; owner: string }> = [];
+
+  for (const path of paths) {
+    const existing = session.claims.find(c => c.path === path && !c.released);
+    if (existing && existing.claimedBy !== claimedBy) {
+      conflicts.push({ path, owner: existing.claimedBy });
+    } else {
+      // Claim or re-claim
+      const existingOwn = session.claims.find(c => c.path === path && c.claimedBy === claimedBy);
+      if (!existingOwn || existingOwn.released) {
+        session.claims.push({
+          path,
+          claimedBy,
+          groupId,
+          claimedAt: Date.now(),
+          released: false,
+        });
+      }
+      claimed.push(path);
+    }
+  }
+
+  return { claimed, conflicts };
+}
+
+export function releaseFiles(
+  session: SwarmSession,
+  paths: string[],
+  claimedBy: string,
+): string[] {
+  const released: string[] = [];
+  for (const path of paths) {
+    const claim = session.claims.find(c => c.path === path && c.claimedBy === claimedBy && !c.released);
+    if (claim) {
+      claim.released = true;
+      released.push(path);
+    }
+  }
+  return released;
+}
+
+export function checkFileClaims(
+  session: SwarmSession,
+  paths: string[],
+): Array<{ path: string; claimedBy: string; groupId: string }> {
+  return paths
+    .map(path => {
+      const claim = session.claims.find(c => c.path === path && !c.released);
+      return claim ? { path, claimedBy: claim.claimedBy, groupId: claim.groupId } : null;
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+}
+
+export function getClaimsForWorkstream(session: SwarmSession, workstreamId: string): FileClaim[] {
+  return session.claims.filter(c => c.claimedBy === workstreamId && !c.released);
+}
+
+export function getAllActiveClaims(session: SwarmSession): FileClaim[] {
+  return session.claims.filter(c => !c.released);
+}
+
+// ── Anti-Drift Detection ──────────────────────────────────────────────
+// Compare worker output against original assignment to detect goal drift.
+
+export function checkDrift(
+  taskGoal: string,
+  output: string,
+): DriftCheck {
+  const goalTokens = new Set(taskGoal.toLowerCase().split(/\s+/).filter(t => t.length > 3));
+  const outputTokens = new Set(output.toLowerCase().split(/\s+/).filter(t => t.length > 3));
+
+  // Measure how many goal keywords appear in output
+  let overlap = 0;
+  for (const token of goalTokens) {
+    if (outputTokens.has(token)) overlap++;
+  }
+  const alignmentScore = goalTokens.size > 0 ? overlap / goalTokens.size : 1;
+
+  const driftSignals: string[] = [];
+
+  // Check for common drift indicators
+  if (alignmentScore < 0.3) {
+    driftSignals.push('Output has very low keyword overlap with original task');
+  }
+
+  // Check if output is suspiciously short
+  if (output.length < taskGoal.length * 0.5 && output.length < 200) {
+    driftSignals.push('Output is much shorter than expected for the task scope');
+  }
+
+  // Check for scope creep signals
+  const scopeCreepPatterns = /\b(also|additionally|while I was at it|bonus|extra|unrelated)\b/gi;
+  const scopeMatches = output.match(scopeCreepPatterns);
+  if (scopeMatches && scopeMatches.length >= 2) {
+    driftSignals.push(`Possible scope creep detected (${scopeMatches.length} tangential markers)`);
+  }
+
+  // Summarize output (first 200 chars)
+  const outputSummary = output.substring(0, 200) + (output.length > 200 ? '...' : '');
+
+  return { taskGoal, outputSummary, alignmentScore, driftSignals };
+}
+
+// ── Pattern Memory ────────────────────────────────────────────────────
+// Store and retrieve successful patterns for worker reuse.
+
+let patternCounter = 0;
+
+export function storePattern(
+  session: SwarmSession,
+  taskType: string,
+  approach: string,
+  filesInvolved: string[],
+  qualityScore: number,
+  keyDecisions: string[],
+  tags: string[],
+): PatternEntry {
+  const entry: PatternEntry = {
+    id: `pattern-${++patternCounter}`,
+    taskType,
+    approach,
+    filesInvolved,
+    qualityScore,
+    keyDecisions,
+    tags,
+    createdAt: Date.now(),
+    sessionId: session.id,
+  };
+  session.patterns.push(entry);
+  return entry;
+}
+
+export function searchPatterns(
+  session: SwarmSession,
+  query: string,
+  limit: number = 5,
+): PatternEntry[] {
+  const queryTokens = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+
+  // Score each pattern by keyword match
+  const scored = session.patterns.map(p => {
+    const searchable = [p.taskType, p.approach, ...p.tags, ...p.keyDecisions].join(' ').toLowerCase();
+    let score = 0;
+    for (const token of queryTokens) {
+      if (searchable.includes(token)) score++;
+    }
+    return { pattern: p, score };
+  });
+
+  return scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score || b.pattern.qualityScore - a.pattern.qualityScore)
+    .slice(0, limit)
+    .map(s => s.pattern);
+}
+
+export function buildPatternContext(patterns: PatternEntry[]): string {
+  if (patterns.length === 0) return '';
+  const lines = ['', '--- RELEVANT PATTERNS FROM PRIOR TASKS ---'];
+  for (const p of patterns) {
+    lines.push(`[${p.taskType}] Score: ${p.qualityScore}/10`);
+    lines.push(`  Approach: ${p.approach}`);
+    if (p.keyDecisions.length > 0) {
+      lines.push(`  Key decisions: ${p.keyDecisions.join('; ')}`);
+    }
+    lines.push(`  Files: ${p.filesInvolved.join(', ')}`);
+    lines.push('');
+  }
+  lines.push('--- END PATTERNS ---');
+  return lines.join('\n');
+}
+
+// ── Worker Consensus Protocol ─────────────────────────────────────────
+// Lightweight voting for L3 workers on complex tasks.
+
+let consensusCounter = 0;
+
+export function createConsensus(
+  session: SwarmSession,
+  groupId: string,
+  topic: string,
+): ConsensusState {
+  const consensus: ConsensusState = {
+    id: `consensus-${++consensusCounter}`,
+    sessionId: session.id,
+    groupId,
+    topic,
+    proposals: [],
+    status: 'collecting',
+    createdAt: Date.now(),
+  };
+  session.consensuses.push(consensus);
+  return consensus;
+}
+
+export function getConsensus(session: SwarmSession, id: string): ConsensusState | undefined {
+  return session.consensuses.find(c => c.id === id);
+}
+
+export function submitProposal(
+  consensus: ConsensusState,
+  workstreamId: string,
+  slotId: string,
+  model: string,
+  content: string,
+): void {
+  consensus.proposals.push({
+    workstreamId,
+    slotId,
+    model,
+    content,
+    submittedAt: Date.now(),
+  });
+}
+
+/**
+ * Quick convergence check for consensus proposals.
+ * Uses Jaccard similarity on key terms across proposals.
+ */
+export function evaluateConsensus(consensus: ConsensusState): {
+  convergenceScore: number;
+  recommendation: 'implement-best' | 'debate' | 'need-more-proposals';
+} {
+  if (consensus.proposals.length < 2) {
+    return { convergenceScore: 0, recommendation: 'need-more-proposals' };
+  }
+
+  // Tokenize each proposal
+  const tokenSets = consensus.proposals.map(p =>
+    new Set(p.content.toLowerCase().split(/\s+/).filter(t => t.length > 3))
+  );
+
+  // Compute average pairwise Jaccard similarity
+  let totalSim = 0;
+  let pairs = 0;
+  for (let i = 0; i < tokenSets.length; i++) {
+    for (let j = i + 1; j < tokenSets.length; j++) {
+      const intersection = [...tokenSets[i]].filter(t => tokenSets[j].has(t)).length;
+      const union = new Set([...tokenSets[i], ...tokenSets[j]]).size;
+      totalSim += union > 0 ? intersection / union : 0;
+      pairs++;
+    }
+  }
+  const convergenceScore = pairs > 0 ? totalSim / pairs : 0;
+  consensus.convergenceScore = convergenceScore;
+
+  if (convergenceScore >= 0.6) {
+    consensus.status = 'decided';
+    return { convergenceScore, recommendation: 'implement-best' };
+  } else {
+    return { convergenceScore, recommendation: 'debate' };
+  }
 }
