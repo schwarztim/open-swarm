@@ -18,6 +18,7 @@ import {
   handleSwarmBoard,
   handleSwarmDispatch,
   handleSwarmThrottle,
+  handleSwarmDebate,
 } from './tools.js';
 
 const server = new Server(
@@ -204,6 +205,45 @@ const TOOLS = [
       required: ['sessionId'],
     },
   },
+  {
+    name: 'swarm_debate',
+    description: 'Start, advance, submit to, evaluate, validate, and resolve structured debates. Works at L1 (top-level) or L2 (manager-level worker debates). Implements multi-round position→critique→rebuttal cycles with convergence tracking, sycophancy detection, partial consensus, fast-track, devil\'s advocate, and post-implementation validation. Based on Agent-Skills multi-agent-patterns.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string', description: 'Swarm session ID' },
+        action: {
+          type: 'string',
+          enum: ['start', 'next', 'submit', 'evaluate', 'synthesize', 'status', 'escalate', 'validate'],
+          description: 'Action: start=create debate, next=get phase prompts, submit=add contribution, evaluate=score+convergence+fast-track+contrarian, synthesize=produce final decision, status=check state, escalate=send to parent level, validate=post-implementation validation checkpoint',
+        },
+        topic: { type: 'string', description: 'What to debate (for action="start")' },
+        trigger: {
+          type: 'string',
+          enum: ['explicit', 'disagreement', 'quality-split', 'l1-directive'],
+          description: 'Why the debate is being initiated (for action="start")',
+        },
+        groupId: { type: 'string', description: 'L2 agent group running the debate (omit for L1-level debates)' },
+        participantCount: { type: 'number', description: 'Number of debaters (default: 2, max: 5)' },
+        maxRounds: { type: 'number', description: 'Max debate rounds before forced escalation (default: 3)' },
+        debateId: { type: 'string', description: 'Debate ID (returned by action="start")' },
+        slotId: { type: 'string', description: 'Participant slot ID "debater-0", etc. (for action="submit")' },
+        content: { type: 'string', description: 'Position, critique, or rebuttal content (for action="submit")' },
+        synthesis: { type: 'string', description: 'Final synthesized position (for action="synthesize")' },
+        validationOutcome: {
+          type: 'string',
+          enum: ['confirmed', 'failed', 'partial'],
+          description: 'Post-implementation validation result (for action="validate"). "failed" or "partial" reopens the debate with findings.',
+        },
+        validationFindings: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'What was discovered during post-implementation validation (for action="validate")',
+        },
+      },
+      required: ['sessionId', 'action'],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -236,6 +276,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmDispatch(args as Parameters<typeof handleSwarmDispatch>[0]);
     case 'swarm_throttle':
       return handleSwarmThrottle(args as Parameters<typeof handleSwarmThrottle>[0]);
+    case 'swarm_debate':
+      return handleSwarmDebate(args as Parameters<typeof handleSwarmDebate>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }

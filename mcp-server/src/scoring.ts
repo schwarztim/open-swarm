@@ -197,3 +197,157 @@ ${crossContext}
 Address every issue listed above. Your revised output will be scored again.
 `;
 }
+
+// ── Debate Scoring (Agent-Skills: advanced-evaluation) ─────────────────
+// Implements LLM-as-judge evaluation for debate positions.
+// Based on Agent-Skills advanced-evaluation: direct scoring, pairwise comparison,
+// position bias mitigation, and sycophancy detection.
+
+export interface DebateScoreInput {
+  position: string;
+  critiques: string[];
+  rebuttal: string;
+  topic: string;
+}
+
+/**
+ * Generate an evaluation prompt for scoring debate positions.
+ * This prompt is sent to a critic/evaluator model to score each position.
+ * Follows Agent-Skills advanced-evaluation patterns for rubric design.
+ */
+export function generateDebateEvalPrompt(
+  positions: Array<{ slotId: string; position: string; rebuttal?: string }>,
+  critiques: string[],
+  topic: string,
+  taskContext: string,
+): string {
+  const positionBlocks = positions.map((p, i) =>
+    `### Position ${i + 1} (${p.slotId})
+INITIAL POSITION:
+${p.position}
+
+${p.rebuttal ? `REBUTTAL (after critique):
+${p.rebuttal}` : 'No rebuttal submitted.'}`
+  ).join('\n\n');
+
+  const critiqueBlock = critiques.length > 0
+    ? `## CRITIQUES EXCHANGED\n${critiques.map((c, i) => `Critique ${i + 1}:\n${c}`).join('\n\n')}`
+    : 'No critiques available.';
+
+  return `You are an expert debate evaluator. Score each position in this structured debate.
+
+## DEBATE TOPIC
+${topic}
+
+## TASK CONTEXT
+${taskContext}
+
+## POSITIONS
+${positionBlocks}
+
+${critiqueBlock}
+
+## SCORING RUBRIC
+Score each position independently on these dimensions:
+
+| Dimension               | Max | Criteria |
+|------------------------|-----|----------|
+| Evidence Quality        |  3  | 0 = no evidence, 1 = anecdotal, 2 = referenced, 3 = well-documented with code/data |
+| Reasoning Clarity       |  3  | 0 = incoherent, 1 = partially clear, 2 = mostly clear, 3 = logically structured |
+| Rebuttal Effectiveness  |  3  | 0 = ignored critiques, 1 = partially addressed, 2 = mostly addressed, 3 = fully addressed with new evidence |
+| Novel Contribution      |  2  | 0 = nothing new, 1 = minor insight, 2 = significant unique contribution |
+
+Total is the sum (max 11).
+
+## SYCOPHANCY CHECK
+Also assess whether positions are genuinely independent or just echoing each other:
+- Do positions maintain distinct perspectives after critique?
+- Are rebuttals substantive or just agreement?
+- Is there evidence of genuine intellectual engagement?
+
+## OUTPUT FORMAT
+For EACH position, output:
+
+DEBATE_SCORES (Position N):
+- Evidence Quality: X/3
+- Reasoning Clarity: X/3
+- Rebuttal Effectiveness: X/3
+- Novel Contribution: X/2
+- Sycophancy Risk: LOW/MEDIUM/HIGH
+
+CONVERGENCE: X% (0-100, how close are positions to agreement)
+SYCOPHANCY: X% (0-100, how much are they just agreeing without substance)
+DOMINANT: <position number or "none">
+
+DEBATE_SUMMARY: <one-line assessment of debate quality and outcome>
+`;
+}
+
+/**
+ * Parse a debate evaluation output into structured scores.
+ * Expects the DEBATE_SCORES format produced by generateDebateEvalPrompt.
+ */
+export function parseDebateEvalOutput(evalOutput: string): {
+  positionScores: Array<{
+    evidenceQuality: number;
+    reasoningClarity: number;
+    rebuttalEffectiveness: number;
+    novelContribution: number;
+    total: number;
+    sycophancyRisk: string;
+  }>;
+  convergence: number;
+  sycophancy: number;
+  dominant: string;
+  summary: string;
+} | null {
+  const scoreBlocks = evalOutput.split(/DEBATE_SCORES\s*\(Position\s*\d+\)/i);
+  const positionScores: Array<{
+    evidenceQuality: number;
+    reasoningClarity: number;
+    rebuttalEffectiveness: number;
+    novelContribution: number;
+    total: number;
+    sycophancyRisk: string;
+  }> = [];
+
+  for (const block of scoreBlocks.slice(1)) {
+    const extract = (pattern: RegExp): number | null => {
+      const m = block.match(pattern);
+      return m ? parseInt(m[1], 10) : null;
+    };
+
+    const evidenceQuality = extract(/Evidence\s+Quality\s*:\s*(\d+)\s*\/\s*3/i);
+    const reasoningClarity = extract(/Reasoning\s+Clarity\s*:\s*(\d+)\s*\/\s*3/i);
+    const rebuttalEffectiveness = extract(/Rebuttal\s+Effectiveness\s*:\s*(\d+)\s*\/\s*3/i);
+    const novelContribution = extract(/Novel\s+Contribution\s*:\s*(\d+)\s*\/\s*2/i);
+    const sycophancyMatch = block.match(/Sycophancy\s+Risk\s*:\s*(LOW|MEDIUM|HIGH)/i);
+
+    if (evidenceQuality !== null && reasoningClarity !== null &&
+        rebuttalEffectiveness !== null && novelContribution !== null) {
+      positionScores.push({
+        evidenceQuality,
+        reasoningClarity,
+        rebuttalEffectiveness,
+        novelContribution,
+        total: evidenceQuality + reasoningClarity + rebuttalEffectiveness + novelContribution,
+        sycophancyRisk: sycophancyMatch ? sycophancyMatch[1].toUpperCase() : 'UNKNOWN',
+      });
+    }
+  }
+
+  const convergenceMatch = evalOutput.match(/CONVERGENCE\s*:\s*(\d+)\s*%/i);
+  const sycophancyMatch = evalOutput.match(/SYCOPHANCY\s*:\s*(\d+)\s*%/i);
+  const dominantMatch = evalOutput.match(/DOMINANT\s*:\s*(.+)/i);
+  const summaryMatch = evalOutput.match(/DEBATE_SUMMARY\s*:\s*(.+)/i);
+
+  if (positionScores.length === 0) return null;
+
+  return {
+    positionScores,
+    convergence: convergenceMatch ? parseInt(convergenceMatch[1], 10) / 100 : 0,
+    sycophancy: sycophancyMatch ? parseInt(sycophancyMatch[1], 10) / 100 : 0,
+    dominant: dominantMatch ? dominantMatch[1].trim() : 'none',
+    summary: summaryMatch ? summaryMatch[1].trim() : 'Debate evaluation complete',
+  };
+}

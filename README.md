@@ -352,6 +352,93 @@ sequenceDiagram
     S-->>U: 🏆 Winner with reasoning + confidence
 ```
 
+### L2 Manager Debate Flow (NEW — v14.0)
+
+When an L2 Manager detects worker disagreement, it runs a structured debate
+via `swarm_debate` without escalating to L1. Based on
+[Agent-Skills multi-agent-patterns](https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills/multi-agent-patterns):
+adversarial critique, weighted voting, sycophancy detection.
+
+```mermaid
+sequenceDiagram
+    participant L1 as 🎯 L1 Orchestrator
+    participant M as 📋 L2 Manager
+    participant MCP as 🐝 MCP Server
+    participant W1 as 🔨 Worker 1
+    participant W2 as 🔨 Worker 2
+    
+    L1->>M: Dispatch group
+    M->>W1: Assign task
+    M->>W2: Assign task
+    Note over W1,W2: ⚡ Parallel execution
+    W1-->>M: Output A
+    W2-->>M: Output B (conflicting!)
+    
+    Note over M: ⚠️ Disagreement detected
+    M->>MCP: swarm_debate(start, trigger=disagreement)
+    MCP-->>M: debateId, participants
+    
+    rect rgb(40, 40, 80)
+        Note over M,W2: 🔥 DEBATE ROUND 1
+        M->>MCP: swarm_debate(next)
+        MCP-->>M: position prompts
+        M->>W1: Position task (anonymous)
+        M->>W2: Position task (anonymous)
+        W1-->>M: Position A
+        W2-->>M: Position B
+        M->>MCP: swarm_debate(submit) ×2
+        
+        M->>MCP: swarm_debate(next)
+        MCP-->>M: critique prompts
+        M->>W1: Critique B (anonymous)
+        M->>W2: Critique A (anonymous)
+        W1-->>M: Critique of B
+        W2-->>M: Critique of A
+        M->>MCP: swarm_debate(submit) ×2
+        
+        M->>MCP: swarm_debate(next)
+        MCP-->>M: rebuttal prompts
+        M->>W1: Defend/revise
+        M->>W2: Defend/revise
+        W1-->>M: Rebuttal
+        W2-->>M: Rebuttal
+        M->>MCP: swarm_debate(submit) ×2
+    end
+    
+    M->>MCP: swarm_debate(evaluate)
+    MCP-->>M: convergence + sycophancy check
+    
+    alt Converged
+        M->>MCP: swarm_debate(synthesize)
+        MCP-->>M: synthesis prompt
+        M->>M: Produce final decision
+        M-->>L1: Report with synthesis
+    else Stalled
+        M->>MCP: swarm_debate(escalate)
+        M-->>L1: Report with ESCALATION
+        L1->>L1: Boss makes the call
+    end
+```
+
+#### Debate Scoring Dimensions
+
+| Dimension | Max | What It Measures |
+|-----------|-----|-----------------|
+| Evidence Quality | 3 | Code refs, data, concrete examples |
+| Reasoning Clarity | 3 | Logical structure, causal chains |
+| Rebuttal Effectiveness | 3 | Addressed critiques with new evidence |
+| Novel Contribution | 2 | Unique insights not in other positions |
+
+#### Sycophancy Detection Signals
+
+| Signal | What It Detects |
+|--------|----------------|
+| Rebuttal collapse | Rebuttals <30% length of positions |
+| Hollow agreement | Agreement markers without substantive reasoning |
+| Soft critiques | 3:1 ratio of hedging vs substantive critique markers |
+| Position mimicry | Positions copying each other's prior content |
+| Minimal defense | "Position unchanged" with <200 chars |
+
 ### Blitz Flow (Maximum Throughput)
 
 ```mermaid
@@ -754,6 +841,7 @@ source ~/.zshrc
 | `swarm_models` | List or set available models dynamically |
 | `swarm_relay` | **NEW** — Post findings/blockers/decisions to the shared board |
 | `swarm_board` | **NEW** — Read board state, check ready/blocked workstreams |
+| `swarm_debate` | **NEW** — Structured multi-round debates with convergence + sycophancy detection |
 
 ### Invocation
 

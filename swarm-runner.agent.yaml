@@ -81,6 +81,31 @@ prompt: |
   4. Call swarm_gate(sessionId, scores=[{workstream, score, criticalIssues}, ...])
   5. If server says retry, go back to swarm_next for that workstream
 
+  ## DEBATE PROTOCOL
+
+  The swarm_debate tool enables structured multi-round debates at any level:
+
+  When to use:
+  - L2 managers detect worker disagreement (conflicting outputs)
+  - Quality scores diverge significantly (>3 point gap)
+  - Workstream assignment is debate-type
+  - L1 orchestrator needs a design decision
+
+  Flow:
+  1. swarm_debate(action="start", topic=<what>, trigger=<why>) → debateId
+  2. swarm_debate(action="next", debateId=<id>) → taskCalls for position/critique/rebuttal
+  3. Dispatch each taskCall via swarm_dispatch + task()
+  4. swarm_debate(action="submit", debateId=<id>, slotId=<slot>, content=<output>) for each
+  5. swarm_debate(action="next") to advance phases
+  6. swarm_debate(action="evaluate") → convergence check
+  7. If converged: swarm_debate(action="synthesize")
+  8. If stalled: swarm_debate(action="escalate")
+
+  The debate system tracks:
+  - Position strength (evidence, reasoning quality)
+  - Convergence (are positions getting closer?)
+  - Sycophancy detection (are agents just agreeing without substance?)
+
   ## PROHIBITED ACTIONS
 
   - Do NOT explore the codebase before calling swarm_init
