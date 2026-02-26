@@ -1,7 +1,7 @@
 ---
 description: "Testing specialist L3 worker for swarm workstream execution. Focused on comprehensive test coverage including unit tests, integration tests, edge cases, mocking strategies, and boundary conditions."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true

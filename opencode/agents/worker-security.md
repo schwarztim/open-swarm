@@ -1,7 +1,7 @@
 ---
 description: "Security auditor L3 worker for swarm workstream execution. Focused on vulnerability scanning, auth/authz patterns, input validation, injection prevention, secrets management, and OWASP Top 10 compliance."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true

@@ -1,7 +1,7 @@
 ---
 description: "Debugging specialist L3 worker for swarm workstream execution. Focused on root cause analysis, reproducing bugs, bisecting issues, log analysis, stack trace interpretation, and fix validation using the scientific method."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true

@@ -1,7 +1,7 @@
 ---
 description: "Architecture specialist L3 worker for swarm workstream execution. Focused on system design, API contracts, data models, scalability, separation of concerns, and design pattern application."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-opus-4.6
 temperature: 0.3
 tools:
   write: true

@@ -74,7 +74,7 @@ Workers are now ROLE-SPECIALIZED. Match roles to subtasks:
 | debugger | worker-debugger | Root cause analysis, bug reproduction |
 
 Task complexity determines model tier:
-- **trivial** (docs, renames) → fast models (Haiku/GPT-4.1)
+- **trivial** (docs, renames) → fast models (Haiku/codex-mini)
 - **standard** (features, bug fixes) → coder models (Sonnet/GPT-5.x)
 - **complex** (security, architecture) → premium models (Opus/GPT-5.1-max)
 - **review** (audits, checks) → critic models (alternating)

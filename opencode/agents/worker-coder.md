@@ -1,7 +1,7 @@
 ---
 description: "Coding specialist L3 worker for swarm workstream execution. Focused on writing clean, production-ready code with strong implementation patterns, DRY principles, and robust error handling."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true

@@ -1,7 +1,7 @@
 ---
 description: L1 Orchestrator — the boss. Delegates through Open Swarm MCP via 3-tier hierarchy (L1→L2 managers→L3 workers). Cannot edit files — forced to orchestrate.
 mode: primary
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-opus-4.6
 temperature: 0.1
 tools:
   write: false

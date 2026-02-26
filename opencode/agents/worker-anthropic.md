@@ -1,7 +1,7 @@
 ---
 description: "Anthropic worker for swarm workstreams. Routes here when provider=anthropic."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true

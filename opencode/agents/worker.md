@@ -1,7 +1,7 @@
 ---
 description: Full-access coding agent for swarm workstream execution. Invoked by the swarm orchestrator to implement features, write tests, analyze code, and make changes.
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true

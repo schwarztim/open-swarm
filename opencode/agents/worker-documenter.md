@@ -1,7 +1,7 @@
 ---
 description: "Documentation specialist L3 worker for swarm workstream execution. Focused on README updates, API docs, inline comments, architecture diagrams, changelogs, and keeping documentation in sync with code."
 mode: subagent
-model: github-copilot/claude-sonnet-4
+model: github-copilot/claude-sonnet-4.6
 temperature: 0.3
 tools:
   write: true
