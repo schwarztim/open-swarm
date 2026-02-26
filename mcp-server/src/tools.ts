@@ -604,28 +604,33 @@ export function handleSwarmNext(args: {
 
   // ── Validation phase routing ──
   if (phaseDef.name === "validate-static") {
-    // Single agent runs build + test suite
+    // Single agent runs build + test suite, fixes failures, loops until green
     const projectFiles = session.workstreams.flatMap((ws) => ws.files);
     const staticPrompt = [
       history,
       "",
-      "--- VALIDATION: STATIC + UNIT TESTS ---",
-      "Run the project build and test suite to verify code compiles and existing tests pass.",
+      "--- VALIDATION: BUILD + TEST LOOP ---",
+      "You MUST get the build AND test suite to pass. Do not just report — FIX failures.",
       "",
       "1. Detect the project type:",
       "   - package.json → npm run build && npm test",
-      "   - setup.py / pyproject.toml → pip install -e . && pytest",
+      "   - setup.py / pyproject.toml → pip install -e . && pytest --tb=short -q",
       "   - go.mod → go build ./... && go test ./...",
       "   - Cargo.toml → cargo build && cargo test",
       "   - Makefile → make build && make test",
       "",
-      "2. Run the build command. Report the result.",
-      "3. Run the test suite. Report the result.",
+      "2. Run the build. If it fails, FIX the build errors and re-run.",
+      "3. Run the test suite. If tests fail, FIX the failing tests and re-run.",
+      "4. LOOP: Keep fixing and re-running until BOTH build and tests pass.",
+      "   - Maximum 3 fix attempts per failure before reporting as unresolvable.",
+      "   - For each fix: identify root cause, apply minimal fix, verify.",
       "",
-      "4. Output structured results:",
+      "5. When everything passes (or max attempts reached), output:",
       "",
       "STATIC_RESULT: pass|fail",
       "UNIT_RESULT: pass|fail (N tests passed, M failed)",
+      "FIX_ATTEMPTS: N",
+      "FIXES_APPLIED: <list of what you fixed>",
       "",
       `Files involved: ${projectFiles.slice(0, 20).join(", ") || "See project root"}`,
     ].join("\n");
@@ -3396,7 +3401,7 @@ function handleValidationGate(
     });
   }
 
-  // Gate fails — build retry instructions
+  // Gate fails — auto-loop: reset validate phases so swarm_next re-dispatches
   const failingDetails = results
     .filter((r) => r.summary.failed > 0)
     .map((r) => ({
@@ -3419,19 +3424,52 @@ function handleValidationGate(
         ? `Workstream(s) with zero pass rate: ${zeroPassWorkstreams.map((r) => r.workstream).join(", ")}`
         : `Overall pass rate ${Math.round(passRate * 100)}% is below 80% threshold.`;
 
+  // Track retry count
+  const retryCount = (session as any)._validationRetries ?? 0;
+  const maxRetries = 3;
+
+  if (retryCount >= maxRetries) {
+    // Max retries exhausted — proceed with warnings
+    phase.status = "done";
+    advancePhase(session.id);
+    return ok({
+      proceed: true,
+      warnings: true,
+      sessionId: session.id,
+      validation: validationSummary,
+      failingDetails,
+      retries: retryCount,
+      nextAction: `Validation gate failed after ${maxRetries} retries. Proceeding with ${totalFailed} failing test(s). Call swarm_next with sessionId "${session.id}" to continue.`,
+    });
+  }
+
+  // Reset validate-static phase so it re-runs with fix instructions
+  (session as any)._validationRetries = retryCount + 1;
+  session.validationResults = []; // Clear stale results
+
+  // Find and reset the validate-static phase
+  const tierPhases = session.phases;
+  for (const p of tierPhases) {
+    if (p.name === "validate-static" || p.name === "validate-integration") {
+      p.status = "pending";
+    }
+  }
+  phase.status = "pending"; // Reset this gate too
+
+  // Rewind currentPhase to validate-static
+  const staticIdx = tierPhases.findIndex((p) => p.name === "validate-static");
+  if (staticIdx >= 0) {
+    session.currentPhaseIndex = staticIdx;
+  }
+
   return ok({
     proceed: false,
+    retry: retryCount + 1,
+    maxRetries,
     sessionId: session.id,
     validation: validationSummary,
     blockReason,
     failingDetails,
-    nextAction: [
-      `Validation gate FAILED: ${blockReason}`,
-      `To resolve:`,
-      `  1. Fix the failing tests in the affected workstreams`,
-      `  2. Re-run the build phase for affected workstreams`,
-      `  3. Re-run validate-integration (call swarm_next after fixing)`,
-      `  4. Call swarm_gate on validate-gate again`,
-    ].join("\n"),
+    nextAction: `Validation gate FAILED (attempt ${retryCount + 1}/${maxRetries}): ${blockReason}. Phases reset — call swarm_next with sessionId "${session.id}" to re-run validation with fixes.`,
   });
 }
