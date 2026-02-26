@@ -401,20 +401,23 @@ export function handleSwarmNext(args: {
       statusBoard,
       managerCalls,
       nextAction: [
-        `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ""}. For EACH managerCall:`,
+        `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ""}.`,
+        `⚠️ RATE PACING: Stagger dispatches — dispatch 2 managers at a time, then bash("sleep 8") before next batch.`,
+        `For EACH managerCall:`,
         `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=managerCall.promptRef, subagent_type=managerCall.subagent_type, description=managerCall.description, model=managerCall.model)`,
         `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt, model=result.model)`,
+        `  3. After every 2 dispatches: bash("sleep 8") — GitHub Copilot rate limit pacing`,
         ``,
         `After dispatching, MONITOR the status board:`,
         `  bash("cat ${statusBoard} 2>/dev/null || echo 'No updates yet'")`,
         ``,
         `When each manager task() completes:`,
-        `  3. Read the manager's report (the task output)`,
-        `  4. Check for ESCALATIONS — if any, YOU (the boss) make the decision`,
-        `  5. Call swarm_submit(sessionId="${session.id}", output=<manager report>)`,
-        `  6. Call swarm_relay to post cross-team findings for the next group`,
+        `  4. Read the manager's report (the task output)`,
+        `  5. Check for ESCALATIONS — if any, YOU (the boss) make the decision`,
+        `  6. Call swarm_submit(sessionId="${session.id}", output=<manager report>)`,
+        `  7. Call swarm_relay to post cross-team findings for the next group`,
         remainingPending > 0
-          ? `  7. Call swarm_next again — the server will release the next wave of managers.`
+          ? `  8. Call swarm_next again — the server will release the next wave of managers.`
           : "",
       ]
         .filter(Boolean)

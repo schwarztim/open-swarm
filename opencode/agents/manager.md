@@ -25,7 +25,14 @@ Your assignment specifies which workers to use. For each worker, call:
 task(subagent_type="worker-openai", description="implement auth module", prompt="<detailed instructions>")
 ```
 
-**Launch ALL workers simultaneously** for maximum parallelism.
+**⚠️ RATE PACING — MANDATORY (GitHub Copilot RPM limits)**
+Do NOT launch all workers at once. Stagger dispatches to avoid API rate limiting:
+1. Launch workers in batches of **2 at a time** (parallel within batch)
+2. After each batch, wait: `bash("sleep 8")`
+3. Then launch the next batch
+4. If you get rate limit errors (429), double the sleep time
+
+This applies to ALL `task()` calls including re-dispatches and debate rounds.
 
 In each worker's prompt, include:
 - Their specific files and success criteria
