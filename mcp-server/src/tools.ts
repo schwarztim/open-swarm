@@ -25,6 +25,8 @@ import {
   resolveModel,
   resolveModelTracked,
   getFallbackLog,
+  checkRateLimit,
+  getRateLimitStatus,
   createSession,
   getSession,
   getPhaseDefinition,
@@ -249,6 +251,7 @@ export function handleSwarmInit(args: {
     firstPhase: phaseDefs[0].name,
     executionMode: session.executionMode,
     rateLimit: rateLimitInfo,
+    apiRateLimits: getRateLimitStatus(session.id),
     availablePresets: Object.fromEntries(
       Object.entries(RATE_PRESETS).map(([k, v]) => [
         k,
@@ -811,10 +814,9 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
           })()
         : null,
     nextAction,
+    apiRateLimits: getRateLimitStatus(session.id),
   });
 }
-
-// ── swarm_gate ────────────────────────────────────────────────────────
 
 export function handleSwarmGate(args: {
   sessionId: string;
@@ -1069,10 +1071,32 @@ export function handleSwarmDispatch(args: {
 
   // Resolve model through fallback if provided
   let modelInfo: { model?: string; fallback?: boolean; original?: string } = {};
+  let resolvedModelId = args.model ?? "";
   if (args.model) {
     const { model: resolved, wasFallback } = resolveModelTracked(args.model);
+    resolvedModelId = resolved;
     modelInfo = { model: resolved, fallback: wasFallback };
     if (wasFallback) modelInfo.original = args.model;
+  }
+
+  // Token-bucket rate limiting per model tier
+  if (resolvedModelId) {
+    const rl = checkRateLimit(session.id, resolvedModelId);
+    if (!rl.ok) {
+      const waitSec = Math.ceil(rl.retryAfterMs / 1000);
+      return ok({
+        rateLimited: true,
+        tier: rl.tier,
+        model: resolvedModelId,
+        retryAfterSeconds: waitSec,
+        retryAfterMs: rl.retryAfterMs,
+        nextAction: [
+          `⏳ Rate limited: ${rl.tier}-tier models are at capacity (GitHub Copilot RPM limit).`,
+          `Wait ${waitSec}s then retry this exact swarm_dispatch call.`,
+          `bash("sleep ${waitSec}")`,
+        ].join("\n"),
+      });
+    }
   }
 
   return ok({
@@ -1155,6 +1179,7 @@ export function handleSwarmThrottle(args: {
         },
       ]),
     ),
+    apiRateLimits: getRateLimitStatus(session.id),
   });
 }
 

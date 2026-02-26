@@ -227,20 +227,116 @@ export interface DebateState {
 // Key constraints per model tier:
 //   Standard models (Sonnet, GPT-5.x, Gemini): 10-15 RPM, 5 concurrent
 //   Premium models (Opus):  1-2 RPM, 1-2 concurrent
-//   Fast models (Haiku, GPT-4.1): 15 RPM, 5-8 concurrent
+//   Fast models (Haiku, GPT-5.1-codex-mini): 15 RPM, 5-8 concurrent
 //
 // Each L2 manager + its workers ≈ 5 concurrent API sessions.
 // Multi-provider spread helps (Anthropic/OpenAI/Google have separate quotas).
-//
-// Model multipliers (premium request cost):
-//   Opus 4.5/4.6 = 3x, Sonnet 4.5/4/4.6 = 1x, Haiku 4.5 = 0.33x
-//   GPT-5.x-Codex = 1x, GPT-4.1 = free on paid plans
 
 export interface RateConfig {
   concurrency: number; // max simultaneous L2 managers
   maxAgents: number; // approx total agents (managers + workers)
   description: string;
   plan: string; // recommended Copilot plan
+}
+
+// ── Token-Bucket API Rate Limiter ────────────────────────────────────
+// Paces dispatch calls to stay under GitHub Copilot's per-model-tier RPM limits.
+// The orchestrator is told to wait N seconds when the bucket is empty.
+
+interface TierRPM {
+  rpm: number;         // requests per minute for this tier
+  burstMax: number;    // max burst tokens (allows small bursts then paces)
+  intervalMs: number;  // computed: 60000 / rpm
+}
+
+const TIER_RPM: Record<string, TierRPM> = {
+  premium: { rpm: 2, burstMax: 2, intervalMs: 30000 },   // Opus: ~2 RPM
+  standard: { rpm: 10, burstMax: 5, intervalMs: 6000 },  // Sonnet/GPT-5.x/Gemini: ~10 RPM
+  fast: { rpm: 15, burstMax: 8, intervalMs: 4000 },      // Haiku/mini/flash: ~15 RPM
+};
+
+class TokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+  private readonly maxTokens: number;
+  private readonly refillRateMs: number; // ms per token
+
+  constructor(maxTokens: number, refillRateMs: number) {
+    this.maxTokens = maxTokens;
+    this.tokens = maxTokens;
+    this.lastRefill = Date.now();
+    this.refillRateMs = refillRateMs;
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = now - this.lastRefill;
+    const newTokens = Math.floor(elapsed / this.refillRateMs);
+    if (newTokens > 0) {
+      this.tokens = Math.min(this.maxTokens, this.tokens + newTokens);
+      this.lastRefill = now;
+    }
+  }
+
+  /** Try to consume a token. Returns { ok: true } or { ok: false, retryAfterMs }. */
+  tryConsume(): { ok: boolean; retryAfterMs: number } {
+    this.refill();
+    if (this.tokens > 0) {
+      this.tokens--;
+      return { ok: true, retryAfterMs: 0 };
+    }
+    // How long until next token?
+    const elapsed = Date.now() - this.lastRefill;
+    const retryAfterMs = Math.max(0, this.refillRateMs - elapsed);
+    return { ok: false, retryAfterMs };
+  }
+
+  /** Current state for status reporting. */
+  status(): { tokens: number; maxTokens: number; refillRateMs: number } {
+    this.refill();
+    return { tokens: this.tokens, maxTokens: this.maxTokens, refillRateMs: this.refillRateMs };
+  }
+}
+
+// Per-session rate limiters keyed by "sessionId:tier"
+const rateLimiters = new Map<string, TokenBucket>();
+
+function getBucket(sessionId: string, modelTier: string): TokenBucket {
+  const key = `${sessionId}:${modelTier}`;
+  let bucket = rateLimiters.get(key);
+  if (!bucket) {
+    const tierConfig = TIER_RPM[modelTier] ?? TIER_RPM.standard;
+    bucket = new TokenBucket(tierConfig.burstMax, tierConfig.intervalMs);
+    rateLimiters.set(key, bucket);
+  }
+  return bucket;
+}
+
+/** Check rate limit before dispatching. Returns wait time in ms (0 = go ahead). */
+export function checkRateLimit(sessionId: string, modelId: string): { ok: boolean; retryAfterMs: number; tier: string } {
+  const entry = ALL_MODELS.find(m => m.id === modelId);
+  const tier = entry?.tier ?? "standard";
+  const bucket = getBucket(sessionId, tier);
+  const result = bucket.tryConsume();
+  return { ...result, tier };
+}
+
+/** Get rate limiter status for all tiers in a session. */
+export function getRateLimitStatus(sessionId: string): Record<string, { tokens: number; maxTokens: number; rpm: number }> {
+  const result: Record<string, { tokens: number; maxTokens: number; rpm: number }> = {};
+  for (const [tierName, tierConfig] of Object.entries(TIER_RPM)) {
+    const bucket = getBucket(sessionId, tierName);
+    const s = bucket.status();
+    result[tierName] = { tokens: s.tokens, maxTokens: s.maxTokens, rpm: tierConfig.rpm };
+  }
+  return result;
+}
+
+/** Clean up rate limiters when a session ends. */
+export function clearRateLimiters(sessionId: string): void {
+  for (const key of rateLimiters.keys()) {
+    if (key.startsWith(`${sessionId}:`)) rateLimiters.delete(key);
+  }
 }
 
 export const RATE_PRESETS: Record<RatePreset, RateConfig> = {
