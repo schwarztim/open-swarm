@@ -19,6 +19,8 @@ import {
   type DriftCheck,
   type PatternEntry,
   type ConsensusState,
+  type AcceptanceTest,
+  type ValidationResult,
   TIER_PHASES,
   RATE_PRESETS,
   resolveRateLimit,
@@ -87,6 +89,9 @@ import {
   getConsensus,
   submitProposal,
   evaluateConsensus,
+  parseAcceptanceTests,
+  getVerifierModel,
+  buildVerifierPrompt,
   sessions,
 } from "./state.js";
 import { memoryStore } from "./memory.js";
@@ -274,6 +279,24 @@ export async function handleSwarmInit(args: {
     }
   }
 
+  // Parse and attach acceptance tests from task prompt
+  const acceptanceTests = parseAcceptanceTests(task);
+  let acceptanceTestInfo:
+    | { workstreamsWithTests: number; totalTests: number }
+    | undefined;
+  for (const [wsId, tests] of acceptanceTests) {
+    const ws = session.workstreams.find((w) => w.id === wsId);
+    if (ws) ws.acceptanceTests = tests;
+  }
+  if (acceptanceTests.size > 0) {
+    let totalTests = 0;
+    for (const tests of acceptanceTests.values()) totalTests += tests.length;
+    acceptanceTestInfo = {
+      workstreamsWithTests: acceptanceTests.size,
+      totalTests,
+    };
+  }
+
   // Build rate limit info for response
   const matchedPreset = Object.entries(RATE_PRESETS).find(
     ([_, v]) => v.concurrency === resolvedConcurrency,
@@ -318,6 +341,7 @@ export async function handleSwarmInit(args: {
     priorPatterns,
     priorRunWarning,
     cleanSlate: cleanSlateApplied ? true : undefined,
+    acceptanceTests: acceptanceTestInfo,
     availablePresets: Object.fromEntries(
       Object.entries(RATE_PRESETS).map(([k, v]) => [
         k,
@@ -544,7 +568,10 @@ export function handleSwarmNext(args: {
       statusBoard,
       managerCalls,
       reassignments: reassignments.length > 0 ? reassignments : undefined,
-      reassignmentManagerCalls: reassignmentManagerCalls.length > 0 ? reassignmentManagerCalls : undefined,
+      reassignmentManagerCalls:
+        reassignmentManagerCalls.length > 0
+          ? reassignmentManagerCalls
+          : undefined,
       nextAction: [
         `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ""}.`,
         `⚠️ RATE PACING: Stagger dispatches — dispatch 2 managers at a time, then bash("sleep 8") before next batch.`,
@@ -573,6 +600,112 @@ export function handleSwarmNext(args: {
         .filter(Boolean)
         .join("\n"),
     });
+  }
+
+  // ── Validation phase routing ──
+  if (phaseDef.name === "validate-static") {
+    // Single agent runs build + test suite
+    const projectFiles = session.workstreams.flatMap((ws) => ws.files);
+    const staticPrompt = [
+      history,
+      "",
+      "--- VALIDATION: STATIC + UNIT TESTS ---",
+      "Run the project build and test suite to verify code compiles and existing tests pass.",
+      "",
+      "1. Detect the project type:",
+      "   - package.json → npm run build && npm test",
+      "   - setup.py / pyproject.toml → pip install -e . && pytest",
+      "   - go.mod → go build ./... && go test ./...",
+      "   - Cargo.toml → cargo build && cargo test",
+      "   - Makefile → make build && make test",
+      "",
+      "2. Run the build command. Report the result.",
+      "3. Run the test suite. Report the result.",
+      "",
+      "4. Output structured results:",
+      "",
+      "STATIC_RESULT: pass|fail",
+      "UNIT_RESULT: pass|fail (N tests passed, M failed)",
+      "",
+      `Files involved: ${projectFiles.slice(0, 20).join(", ") || "See project root"}`,
+    ].join("\n");
+
+    const taskCall = buildTaskCall(
+      session,
+      phaseDef,
+      "validate-static phase",
+      staticPrompt,
+    );
+    phase.status = "in_progress";
+    return ok({
+      sessionId: session.id,
+      phase: phaseDef.name,
+      phaseIndex: phaseIdx,
+      parallel: false,
+      taskCall,
+      nextAction: `Call swarm_dispatch with sessionId="${session.id}" and promptRef=taskCall.promptRef, subagent_type=taskCall.subagent_type, description=taskCall.description. Then call swarm_submit with the output.`,
+    });
+  }
+
+  if (phaseDef.name === "validate-integration") {
+    // Parallel verifier dispatch — one per workstream with acceptance tests
+    const workstreamsWithTests = session.workstreams.filter(
+      (ws) => ws.acceptanceTests && ws.acceptanceTests.length > 0,
+    );
+
+    if (workstreamsWithTests.length === 0) {
+      // Auto-skip if no acceptance tests defined
+      phase.status = "done";
+      return ok({
+        sessionId: session.id,
+        phase: phaseDef.name,
+        phaseIndex: phaseIdx,
+        skipped: true,
+        reason:
+          "No workstreams have acceptance tests defined. Skipping integration validation.",
+        nextAction: `Call swarm_next with sessionId "${session.id}" to advance to the validation gate.`,
+      });
+    }
+
+    const verifierCalls = workstreamsWithTests.map((ws, i) => {
+      const builderModel = ws.modelAssigned;
+      const verifierModel = getVerifierModel(builderModel, i);
+      const prompt = buildVerifierPrompt(session, ws, ws.acceptanceTests!);
+      const promptRef = storePrompt(session, prompt);
+      return {
+        subagent_type: getWorkerAgentName(verifierModel),
+        description: `verify ${ws.id} (${ws.acceptanceTests!.length} tests)`,
+        promptRef,
+        model: verifierModel,
+        workstream: ws.id,
+        testCount: ws.acceptanceTests!.length,
+      };
+    });
+
+    phase.status = "in_progress";
+    return ok({
+      sessionId: session.id,
+      phase: phaseDef.name,
+      phaseIndex: phaseIdx,
+      parallel: true,
+      verifierCalls,
+      nextAction: [
+        `Dispatch ${verifierCalls.length} verifier agent(s) — one per workstream with acceptance tests.`,
+        `For EACH verifierCall:`,
+        `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=verifierCall.promptRef, subagent_type=verifierCall.subagent_type, description=verifierCall.description, model=verifierCall.model)`,
+        `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt, model=result.model)`,
+        `When each verifier completes:`,
+        `  3. Parse VALIDATION_RESULT from output and call swarm_validate(sessionId="${session.id}", workstream=ws.id, results=parsed_results)`,
+        `  4. Call swarm_submit with the verifier output`,
+        `After all verifiers submit: call swarm_next to advance to validate-gate.`,
+      ].join("\n"),
+    });
+  }
+
+  if (phaseDef.name === "validate-gate") {
+    // Direct to validation gate handler
+    phase.status = "in_progress";
+    return handleValidationGate(session, phase);
   }
 
   // Single (non-parallel) task — dispatched directly as L3 worker
@@ -737,7 +870,8 @@ export function handleSwarmSubmit(args: {
 
     // WS2b: Detect degraded groups from failure indicators in output.
     // Require 2+ weak indicators OR 1 strong indicator to avoid false positives.
-    const strongDegradedPattern = /\b(PARTIAL|DEGRADED)\b|BUILD\s+(PARTIAL|FAILED|DEGRADED)\b/i;
+    const strongDegradedPattern =
+      /\b(PARTIAL|DEGRADED)\b|BUILD\s+(PARTIAL|FAILED|DEGRADED)\b/i;
     const weakIndicators = ["limited tool access", "failed to"];
     const lowerOutput = args.output.toLowerCase();
     const weakMatches = weakIndicators.filter((ind) =>
@@ -747,7 +881,7 @@ export function handleSwarmSubmit(args: {
       strongDegradedPattern.test(args.output) || weakMatches.length >= 2;
     const degradedIndicator = isDegraded
       ? strongDegradedPattern.test(args.output)
-        ? args.output.match(strongDegradedPattern)?.[0] ?? "PARTIAL"
+        ? (args.output.match(strongDegradedPattern)?.[0] ?? "PARTIAL")
         : weakMatches.join(", ")
       : null;
     if (degradedIndicator) {
@@ -1013,10 +1147,19 @@ export async function handleSwarmGate(args: {
     return err(`Current phase "${phaseDef.name}" is not a gate phase.`);
   }
 
+  // Validation gate: uses validation results, not subjective scores
+  if (phaseDef.isValidationGate) {
+    const phase = session.phases[session.currentPhaseIndex];
+    phase.status = "in_progress";
+    return handleValidationGate(session, phase);
+  }
+
   // WS3a: Pre-check phase — validate workstream coverage and degraded groups before scoring
   const expectedWsIds = session.workstreams.map((w) => w.id);
   const submittedWsIds = new Set(args.scores.map((s) => s.workstream));
-  const missingWorkstreams = expectedWsIds.filter((id) => !submittedWsIds.has(id));
+  const missingWorkstreams = expectedWsIds.filter(
+    (id) => !submittedWsIds.has(id),
+  );
 
   const degradedGroups = session.agentGroups.filter(
     (g) => g.healthStatus === "degraded",
@@ -1024,7 +1167,9 @@ export async function handleSwarmGate(args: {
   const unresolvedDegraded = degradedGroups.filter((g) => {
     // A degraded group is unresolved if any of its workstreams have no score or score < 7
     return g.workerSlots.some((slot) => {
-      const wsScore = args.scores.find((s) => s.workstream === slot.workstreamId);
+      const wsScore = args.scores.find(
+        (s) => s.workstream === slot.workstreamId,
+      );
       return !wsScore || wsScore.score < 7;
     });
   });
@@ -1033,19 +1178,21 @@ export async function handleSwarmGate(args: {
     workstream_coverage: {
       passed: missingWorkstreams.length === 0,
       missing: missingWorkstreams,
-      message: missingWorkstreams.length === 0
-        ? "All expected workstreams have submissions."
-        : `Missing submissions for: ${missingWorkstreams.join(", ")}`,
+      message:
+        missingWorkstreams.length === 0
+          ? "All expected workstreams have submissions."
+          : `Missing submissions for: ${missingWorkstreams.join(", ")}`,
     },
     degraded_groups: {
       passed: unresolvedDegraded.length === 0,
       groups: unresolvedDegraded.map((g) => ({
         id: g.id,
-          failureReason: g.failureReason ?? "unknown",
+        failureReason: g.failureReason ?? "unknown",
       })),
-      message: unresolvedDegraded.length === 0
-        ? "No degraded groups with unresolved workstreams."
-        : `${unresolvedDegraded.length} degraded group(s) with unresolved workstreams: ${unresolvedDegraded.map((g) => g.id).join(", ")}`,
+      message:
+        unresolvedDegraded.length === 0
+          ? "No degraded groups with unresolved workstreams."
+          : `${unresolvedDegraded.length} degraded group(s) with unresolved workstreams: ${unresolvedDegraded.map((g) => g.id).join(", ")}`,
     },
   };
 
@@ -1208,7 +1355,10 @@ export async function handleSwarmGate(args: {
     retryInstructions: retryDetails.join("\n\n---\n\n"),
     ...(includeBoard
       ? {}
-      : { boardRef: "Use swarm_board with mode=summary to review context before retry" }),
+      : {
+          boardRef:
+            "Use swarm_board with mode=summary to review context before retry",
+        }),
     nextAction: `Scores below threshold. Re-run the "${retryPhase}" phase for failing workstreams, then call swarm_gate again.`,
   });
 }
@@ -1537,13 +1687,16 @@ export function handleSwarmBoard(args: {
 
   // WS1b: Summary mode — group by workstream, return only latest message per type
   if (args.mode === "summary") {
-    const wsMap = new Map<string, {
-      id: string;
-      latestFinding?: BoardMessage;
-      latestReport?: BoardMessage;
-      latestReview?: BoardMessage;
-      messageCount: number;
-    }>();
+    const wsMap = new Map<
+      string,
+      {
+        id: string;
+        latestFinding?: BoardMessage;
+        latestReport?: BoardMessage;
+        latestReview?: BoardMessage;
+        messageCount: number;
+      }
+    >();
 
     for (const msg of messages) {
       const entry = wsMap.get(msg.workstream) ?? {
@@ -1552,15 +1705,24 @@ export function handleSwarmBoard(args: {
       };
       entry.messageCount++;
       if (msg.type === "finding") {
-        if (!entry.latestFinding || msg.timestamp > entry.latestFinding.timestamp) {
+        if (
+          !entry.latestFinding ||
+          msg.timestamp > entry.latestFinding.timestamp
+        ) {
           entry.latestFinding = msg;
         }
       } else if (msg.type === "report") {
-        if (!entry.latestReport || msg.timestamp > entry.latestReport.timestamp) {
+        if (
+          !entry.latestReport ||
+          msg.timestamp > entry.latestReport.timestamp
+        ) {
           entry.latestReport = msg;
         }
       } else if ((msg.type as string) === "review") {
-        if (!entry.latestReview || msg.timestamp > entry.latestReview.timestamp) {
+        if (
+          !entry.latestReview ||
+          msg.timestamp > entry.latestReview.timestamp
+        ) {
           entry.latestReview = msg;
         }
       }
@@ -1574,13 +1736,22 @@ export function handleSwarmBoard(args: {
         id: e.id,
         messageCount: e.messageCount,
         latestFinding: e.latestFinding
-          ? { content: e.latestFinding.content.substring(0, 300), timestamp: e.latestFinding.timestamp }
+          ? {
+              content: e.latestFinding.content.substring(0, 300),
+              timestamp: e.latestFinding.timestamp,
+            }
           : undefined,
         latestReport: e.latestReport
-          ? { content: e.latestReport.content.substring(0, 300), timestamp: e.latestReport.timestamp }
+          ? {
+              content: e.latestReport.content.substring(0, 300),
+              timestamp: e.latestReport.timestamp,
+            }
           : undefined,
         latestReview: e.latestReview
-          ? { content: e.latestReview.content.substring(0, 300), timestamp: e.latestReview.timestamp }
+          ? {
+              content: e.latestReview.content.substring(0, 300),
+              timestamp: e.latestReview.timestamp,
+            }
           : undefined,
       })),
     });
@@ -1588,16 +1759,28 @@ export function handleSwarmBoard(args: {
 
   // WS1a: Pagination — apply AFTER filters
   const totalMessages = messages.length;
-  let paginationMeta: {
-    page: number; pageSize: number; totalMessages: number; totalPages: number; hasMore: boolean;
-  } | undefined;
+  let paginationMeta:
+    | {
+        page: number;
+        pageSize: number;
+        totalMessages: number;
+        totalPages: number;
+        hasMore: boolean;
+      }
+    | undefined;
 
   if (args.page !== undefined) {
     const pageSize = Math.min(args.pageSize ?? 20, 50);
     const page = Math.max(args.page, 1);
     const totalPages = Math.ceil(totalMessages / pageSize);
     messages = messages.slice((page - 1) * pageSize, page * pageSize);
-    paginationMeta = { page, pageSize, totalMessages, totalPages, hasMore: page < totalPages };
+    paginationMeta = {
+      page,
+      pageSize,
+      totalMessages,
+      totalPages,
+      hasMore: page < totalPages,
+    };
   }
 
   const ready = getReadyWorkstreams(session);
@@ -3059,4 +3242,196 @@ export function handleSwarmWorker(args: {
     default:
       return err(`Unknown worker action: ${args.action}`);
   }
+}
+
+// ── swarm_validate ────────────────────────────────────────────────────
+
+export function handleSwarmValidate(args: {
+  sessionId: string;
+  workstream: string;
+  results: Array<{
+    name: string;
+    category: "static" | "unit" | "integration";
+    status: "pass" | "fail" | "skip" | "error";
+    actual?: string;
+    expected?: string;
+    error?: string;
+  }>;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+  if (!args.workstream) return err("Missing required field: workstream");
+  if (!args.results || !Array.isArray(args.results))
+    return err("Missing required field: results (array)");
+
+  const summary = {
+    total: args.results.length,
+    passed: args.results.filter((r) => r.status === "pass").length,
+    failed: args.results.filter((r) => r.status === "fail").length,
+    skipped: args.results.filter(
+      (r) => r.status === "skip" || r.status === "error",
+    ).length,
+  };
+
+  const validationResult: ValidationResult = {
+    workstream: args.workstream,
+    tests: args.results,
+    summary,
+  };
+
+  session.validationResults.push(validationResult);
+
+  // Post summary to board
+  const passRate =
+    summary.total > 0
+      ? ((summary.passed / summary.total) * 100).toFixed(0)
+      : "0";
+  postToBoard(
+    session,
+    args.workstream,
+    "validation",
+    `Validation: ${summary.passed}/${summary.total} passed (${passRate}%) — ${summary.failed} failed, ${summary.skipped} skipped`,
+    "L1",
+  );
+
+  return ok({
+    workstream: args.workstream,
+    summary,
+    nextAction:
+      summary.failed > 0
+        ? `${summary.failed} test(s) failed. Results stored. Continue submitting remaining verifier outputs.`
+        : `All ${summary.total} test(s) passed. Results stored.`,
+  });
+}
+
+// ── Validation Gate ───────────────────────────────────────────────────
+
+function handleValidationGate(
+  session: SwarmSession,
+  phase: PhaseState,
+): ToolResult {
+  const results = session.validationResults;
+
+  if (results.length === 0) {
+    // No validation results — auto-pass (no tests were defined)
+    phase.status = "done";
+    advancePhase(session.id);
+    return ok({
+      proceed: true,
+      sessionId: session.id,
+      reason: "No validation results submitted. Validation gate auto-passed.",
+      nextAction: `Call swarm_next with sessionId "${session.id}" to continue.`,
+    });
+  }
+
+  // Aggregate
+  const totalTests = results.reduce((s, r) => s + r.summary.total, 0);
+  const totalPassed = results.reduce((s, r) => s + r.summary.passed, 0);
+  const totalFailed = results.reduce((s, r) => s + r.summary.failed, 0);
+  const passRate = totalTests > 0 ? totalPassed / totalTests : 0;
+
+  // Static failures are hard blockers (code doesn't compile)
+  const staticFailures = results.flatMap((r) =>
+    r.tests.filter((t) => t.category === "static" && t.status === "fail"),
+  );
+
+  // Check per-workstream: no workstream with 0% pass rate
+  const zeroPassWorkstreams = results.filter(
+    (r) => r.summary.total > 0 && r.summary.passed === 0,
+  );
+
+  // Pass criteria:
+  // 1. Zero static failures (build must compile)
+  // 2. Pass rate >= 80% overall
+  // 3. No workstream with 0% pass rate
+  const allPass = totalFailed === 0;
+  const passWithWarnings =
+    passRate >= 0.8 &&
+    staticFailures.length === 0 &&
+    zeroPassWorkstreams.length === 0;
+
+  const validationSummary = {
+    totalTests,
+    totalPassed,
+    totalFailed,
+    passRate: Math.round(passRate * 100),
+    staticFailures: staticFailures.length,
+    workstreamsValidated: results.length,
+    zeroPassWorkstreams: zeroPassWorkstreams.map((r) => r.workstream),
+  };
+
+  if (allPass) {
+    phase.status = "done";
+    advancePhase(session.id);
+    return ok({
+      proceed: true,
+      sessionId: session.id,
+      validation: validationSummary,
+      nextAction: `All ${totalTests} tests passed. Call swarm_next with sessionId "${session.id}" to continue.`,
+    });
+  }
+
+  if (passWithWarnings) {
+    const failingTests = results.flatMap((r) =>
+      r.tests
+        .filter((t) => t.status === "fail")
+        .map((t) => ({
+          workstream: r.workstream,
+          name: t.name,
+          category: t.category,
+          expected: t.expected,
+          actual: t.actual,
+        })),
+    );
+
+    phase.status = "done";
+    advancePhase(session.id);
+    return ok({
+      proceed: true,
+      warnings: true,
+      sessionId: session.id,
+      validation: validationSummary,
+      failingTests,
+      nextAction: `Validation gate passed with warnings (${Math.round(passRate * 100)}% pass rate). ${totalFailed} test(s) failing but within threshold. Call swarm_next with sessionId "${session.id}" to continue.`,
+    });
+  }
+
+  // Gate fails — build retry instructions
+  const failingDetails = results
+    .filter((r) => r.summary.failed > 0)
+    .map((r) => ({
+      workstream: r.workstream,
+      failedTests: r.tests
+        .filter((t) => t.status === "fail")
+        .map((t) => ({
+          name: t.name,
+          category: t.category,
+          expected: t.expected,
+          actual: t.actual,
+          error: t.error,
+        })),
+    }));
+
+  const blockReason =
+    staticFailures.length > 0
+      ? `Build failures detected (${staticFailures.length} static test(s) failed). Code does not compile.`
+      : zeroPassWorkstreams.length > 0
+        ? `Workstream(s) with zero pass rate: ${zeroPassWorkstreams.map((r) => r.workstream).join(", ")}`
+        : `Overall pass rate ${Math.round(passRate * 100)}% is below 80% threshold.`;
+
+  return ok({
+    proceed: false,
+    sessionId: session.id,
+    validation: validationSummary,
+    blockReason,
+    failingDetails,
+    nextAction: [
+      `Validation gate FAILED: ${blockReason}`,
+      `To resolve:`,
+      `  1. Fix the failing tests in the affected workstreams`,
+      `  2. Re-run the build phase for affected workstreams`,
+      `  3. Re-run validate-integration (call swarm_next after fixing)`,
+      `  4. Call swarm_gate on validate-gate again`,
+    ].join("\n"),
+  });
 }

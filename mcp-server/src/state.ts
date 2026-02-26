@@ -403,6 +403,7 @@ export interface PhaseDefinition {
   parallel: boolean;
   requiresMerge: boolean;
   isGate: boolean;
+  isValidationGate?: boolean;
 }
 
 export interface PhaseState {
@@ -410,6 +411,29 @@ export interface PhaseState {
   status: "pending" | "in_progress" | "done" | "skipped";
   agentIds: string[];
   outputs: string[];
+}
+
+// ── Acceptance Test & Validation Types ────────────────────────────────
+
+export interface AcceptanceTest {
+  name: string; // "GET /api/v1/connectors returns 200"
+  command: string; // "curl -sf http://localhost:8000/api/v1/connectors"
+  expect: string; // "status_code:200" or "json:.status == \"ok\""
+  category: "static" | "unit" | "integration";
+}
+
+export interface ValidationResult {
+  workstream: string;
+  tests: Array<{
+    name: string;
+    category: "static" | "unit" | "integration";
+    status: "pass" | "fail" | "skip" | "error";
+    actual?: string;
+    expected?: string;
+    error?: string;
+    durationMs?: number;
+  }>;
+  summary: { total: number; passed: number; failed: number; skipped: number };
 }
 
 export interface Workstream {
@@ -422,6 +446,7 @@ export interface Workstream {
   subprocessPid?: number;
   outputFile?: string;
   sessionUuid?: string;
+  acceptanceTests?: AcceptanceTest[];
   dependencies: string[]; // workstream IDs that must complete before this one
   status: "pending" | "ready" | "in_progress" | "done" | "blocked";
 }
@@ -438,7 +463,8 @@ export type BoardMessageType =
   | "debate-rebuttal"
   | "debate-synthesis"
   | "debate-escalation"
-  | "background";
+  | "background"
+  | "validation";
 
 export interface BoardMessage {
   workstream: string; // who posted it
@@ -510,6 +536,7 @@ export interface SwarmSession {
   consensuses: ConsensusState[]; // Worker consensus sessions
   patternIdsUsed: string[]; // Pattern IDs retrieved for this session (learning loop)
   promptStore: Map<string, string>; // server-side prompt storage to avoid LLM output truncation
+  validationResults: ValidationResult[]; // Validation pipeline results
   maxLoops: number;
   concurrency: number; // max simultaneous L2 managers (0 = unlimited)
   createdAt: Date;
@@ -770,7 +797,9 @@ export function resolveModelTracked(requestedModel: string): {
   // resolveModel returned an exact match but an upgrade is available)
   const upgrade = MODEL_UPGRADES[resolved];
   const final =
-    upgrade && availableModels.find((m) => m.id === upgrade) ? upgrade : resolved;
+    upgrade && availableModels.find((m) => m.id === upgrade)
+      ? upgrade
+      : resolved;
   const wasFallback = final !== requestedModel;
   if (wasFallback) {
     fallbackLog.push({
@@ -957,7 +986,20 @@ export const TIER_PHASES: Record<Tier, PhaseDefinition[]> = {
       false,
     ),
     def("gate", "task", "", "sync", false, false, true),
-    def("validate", "task", "", "sync", false, false, false),
+    def("validate-static", "task", getFastModel(), "sync", false, false, false),
+    def(
+      "validate-integration",
+      "task",
+      getCriticModel(0),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    {
+      ...def("validate-gate", "task", "", "sync", false, false, true),
+      isValidationGate: true,
+    },
   ],
   "full-swarm": [
     def("explore", "explore", getFastModel(), "background", true, true, false),
@@ -1007,8 +1049,20 @@ export const TIER_PHASES: Record<Tier, PhaseDefinition[]> = {
       false,
     ),
     def("gate", "task", "", "sync", false, false, true),
-    def("integration", "task", "", "sync", false, false, false),
-    def("validate", "task", "", "sync", false, false, false),
+    def("validate-static", "task", getFastModel(), "sync", false, false, false),
+    def(
+      "validate-integration",
+      "task",
+      getCriticModel(0),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    {
+      ...def("validate-gate", "task", "", "sync", false, false, true),
+      isValidationGate: true,
+    },
     def(
       "synthesize",
       "architect",
@@ -1076,8 +1130,20 @@ export const TIER_PHASES: Record<Tier, PhaseDefinition[]> = {
       false,
     ),
     def("gate", "task", "", "sync", false, false, true),
-    def("integration", "task", "", "sync", false, false, false),
-    def("validate", "task", "", "sync", false, false, false),
+    def("validate-static", "task", getFastModel(), "sync", false, false, false),
+    def(
+      "validate-integration",
+      "task",
+      getCriticModel(0),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    {
+      ...def("validate-gate", "task", "", "sync", false, false, true),
+      isValidationGate: true,
+    },
     def(
       "synthesize",
       "architect",
@@ -1192,8 +1258,20 @@ export const TIER_PHASES: Record<Tier, PhaseDefinition[]> = {
       false,
     ),
     def("gate", "task", "", "sync", false, false, true),
-    def("integration", "task", "", "sync", false, false, false),
-    def("validate", "task", "", "sync", false, false, false),
+    def("validate-static", "task", getFastModel(), "sync", false, false, false),
+    def(
+      "validate-integration",
+      "task",
+      getCriticModel(0),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    {
+      ...def("validate-gate", "task", "", "sync", false, false, true),
+      isValidationGate: true,
+    },
     def(
       "synthesize",
       "architect",
@@ -1248,6 +1326,7 @@ export function createSession(
     consensuses: [],
     patternIdsUsed: [],
     promptStore: new Map(),
+    validationResults: [],
     maxLoops: 3,
     concurrency: resolveRateLimit(concurrency),
     createdAt: new Date(),
@@ -1518,9 +1597,7 @@ export function buildBoardContext(
         // For other types, include only a 1-line summary
         const preview = msg.content.substring(0, 80);
         const suffix = msg.content.length > 80 ? "..." : "";
-        lines.push(
-          `[${msg.workstream}] ${msg.type}: ${preview}${suffix}`,
-        );
+        lines.push(`[${msg.workstream}] ${msg.type}: ${preview}${suffix}`);
         continue;
       }
     }
@@ -1861,7 +1938,11 @@ export function buildManagerPrompt(
       : session.task;
 
   // WS4: Use buildBoardContext scoped to this manager's assigned workstreams
-  const boardCtxRaw = buildBoardContext(session, group.id, assignedWorkstreamIds);
+  const boardCtxRaw = buildBoardContext(
+    session,
+    group.id,
+    assignedWorkstreamIds,
+  );
   const crossGroupCtx = boardCtxRaw.trim() || "No cross-group messages yet.";
 
   const workerSpecs = group.workerSlots
@@ -3497,4 +3578,141 @@ export function evaluateConsensus(consensus: ConsensusState): {
   } else {
     return { convergenceScore, recommendation: "debate" };
   }
+}
+
+// ── Acceptance Test Parsing ────────────────────────────────────────────
+
+/**
+ * Parse structured acceptance tests from a task prompt.
+ * Format:
+ *   ACCEPTANCE_TESTS:
+ *   WS1:
+ *     - name: "GET connectors returns 200"
+ *       command: "curl -sf http://localhost:8000/api/v1/connectors"
+ *       expect: "status_code:200"
+ *       category: "integration"
+ */
+export function parseAcceptanceTests(
+  task: string,
+): Map<string, AcceptanceTest[]> {
+  const result = new Map<string, AcceptanceTest[]>();
+  const blockMatch = task.match(
+    /ACCEPTANCE_TESTS:\s*\n([\s\S]*?)(?:\n(?=[A-Z_]+:)|\n---|\n$|$)/,
+  );
+  if (!blockMatch) return result;
+
+  const block = blockMatch[1];
+  // Split by workstream headers (e.g., "WS1:", "ws-0:")
+  const wsRegex = /^(\S+):\s*$/gm;
+  let match: RegExpExecArray | null;
+  const wsPositions: Array<{ id: string; start: number }> = [];
+  while ((match = wsRegex.exec(block)) !== null) {
+    wsPositions.push({ id: match[1], start: match.index + match[0].length });
+  }
+
+  for (let i = 0; i < wsPositions.length; i++) {
+    const end =
+      i + 1 < wsPositions.length ? wsPositions[i + 1].start : block.length;
+    const wsBlock = block.substring(wsPositions[i].start, end);
+    const tests: AcceptanceTest[] = [];
+
+    // Parse individual test entries
+    const testRegex =
+      /- name:\s*"([^"]+)"\s+command:\s*"([^"]+)"\s+expect:\s*"([^"]+)"(?:\s+category:\s*"([^"]+)")?/g;
+    let testMatch: RegExpExecArray | null;
+    while ((testMatch = testRegex.exec(wsBlock)) !== null) {
+      tests.push({
+        name: testMatch[1],
+        command: testMatch[2],
+        expect: testMatch[3],
+        category: (testMatch[4] as AcceptanceTest["category"]) ?? "integration",
+      });
+    }
+
+    if (tests.length > 0) {
+      result.set(wsPositions[i].id, tests);
+    }
+  }
+
+  return result;
+}
+
+// ── Verifier Model Selection ──────────────────────────────────────────
+
+/**
+ * Select a verifier model from a different provider than the builder.
+ * Ensures clean-room validation — the verifier doesn't share the builder's biases.
+ */
+export function getVerifierModel(builderModel: string, index: number): string {
+  const builderProvider = getModelProvider(builderModel);
+  // Pick from criticPool, excluding builder's provider
+  const candidates = criticPool.filter(
+    (m) => getModelProvider(m) !== builderProvider,
+  );
+  if (candidates.length > 0) return candidates[index % candidates.length];
+  return criticPool[index % criticPool.length]; // fallback if single provider
+}
+
+// ── Verifier Prompt Builder ───────────────────────────────────────────
+
+/**
+ * Build the prompt for a verifier agent. The verifier:
+ * - Receives the workstream's acceptanceTests[]
+ * - Does NOT receive the builder's code or approach (clean-room testing)
+ * - Gets exact test commands to execute
+ * - Must report results in a structured VALIDATION_RESULT: JSON block
+ */
+export function buildVerifierPrompt(
+  session: SwarmSession,
+  workstream: Workstream,
+  tests: AcceptanceTest[],
+): string {
+  const testList = tests
+    .map(
+      (t, i) =>
+        `  ${i + 1}. ${t.name}\n     Command: ${t.command}\n     Expect: ${t.expect}\n     Category: ${t.category}`,
+    )
+    .join("\n");
+
+  return [
+    `=== VALIDATION TASK ===`,
+    `You are an independent verifier. Your job is to run acceptance tests against the project.`,
+    `You did NOT build this code — you are testing it from the outside.`,
+    ``,
+    `Project task: ${session.task}`,
+    `Workstream: ${workstream.id} — ${workstream.description}`,
+    `Files: ${workstream.files.join(", ") || "See project root"}`,
+    ``,
+    `=== STARTUP ===`,
+    `1. Detect the project type from files (package.json → npm, setup.py → pip, go.mod → go, docker-compose.yml → docker)`,
+    `2. Install dependencies if needed`,
+    `3. Start the application (npm run dev / docker compose up -d / uvicorn / etc.)`,
+    `4. Wait for the app to be ready (retry health check for up to 30s)`,
+    ``,
+    `=== ACCEPTANCE TESTS ===`,
+    testList,
+    ``,
+    `=== EXECUTION ===`,
+    `For each test:`,
+    `- Run the command`,
+    `- Compare output against the expect condition:`,
+    `  - "status_code:NNN" → check HTTP status code`,
+    `  - "exit_code:N" → check command exit code`,
+    `  - "json:.field == value" → check JSON field in response`,
+    `  - "contains:text" → check output contains text`,
+    `- Record pass/fail with actual vs expected`,
+    ``,
+    `=== REPORTING ===`,
+    `After running all tests, output a structured block:`,
+    ``,
+    `VALIDATION_RESULT:`,
+    `{`,
+    `  "workstream": "${workstream.id}",`,
+    `  "results": [`,
+    `    { "name": "test name", "category": "integration", "status": "pass|fail|skip|error", "actual": "...", "expected": "...", "error": "..." }`,
+    `  ]`,
+    `}`,
+    ``,
+    `Then shut down any processes you started.`,
+  ].join("\n");
 }

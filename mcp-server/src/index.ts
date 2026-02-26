@@ -25,6 +25,7 @@ import {
   handleSwarmLearn,
   handleSwarmWatch,
   handleSwarmWorker,
+  handleSwarmValidate,
 } from "./tools.js";
 import { memoryStore } from "./memory.js";
 
@@ -669,6 +670,52 @@ const TOOLS = [
       required: ["sessionId", "action"],
     },
   },
+  {
+    name: "swarm_validate",
+    description:
+      "Submit structured validation/test results for a workstream. Used by verifier agents to report acceptance test outcomes. Results are stored on the session and evaluated by the validate-gate phase.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Swarm session ID" },
+        workstream: {
+          type: "string",
+          description: "Workstream ID being validated",
+        },
+        results: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Test name" },
+              category: {
+                type: "string",
+                enum: ["static", "unit", "integration"],
+                description: "Test category",
+              },
+              status: {
+                type: "string",
+                enum: ["pass", "fail", "skip", "error"],
+                description: "Test result status",
+              },
+              actual: {
+                type: "string",
+                description: "Actual result observed",
+              },
+              expected: { type: "string", description: "Expected result" },
+              error: {
+                type: "string",
+                description: "Error message if status is error",
+              },
+            },
+            required: ["name", "category", "status"],
+          },
+          description: "Array of test results",
+        },
+      },
+      required: ["sessionId", "workstream", "results"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -725,6 +772,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmWatch(args as Parameters<typeof handleSwarmWatch>[0]);
     case "swarm_worker":
       return handleSwarmWorker(args as Parameters<typeof handleSwarmWorker>[0]);
+    case "swarm_validate":
+      return handleSwarmValidate(
+        args as Parameters<typeof handleSwarmValidate>[0],
+      );
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }
