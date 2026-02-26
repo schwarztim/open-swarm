@@ -15,6 +15,8 @@ tools:
   view: true
   fetch: true
   diagnostics: true
+  swarm_relay: true
+  swarm_board: true
 ---
 
 You are a **Testing Specialist** (L3 Worker) executing a workstream assigned by your L2 Manager.

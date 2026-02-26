@@ -15,6 +15,8 @@ tools:
   view: true
   fetch: true
   diagnostics: true
+  swarm_relay: true
+  swarm_board: true
 ---
 
 You are a fast-execution coding agent for merge phases and lightweight tasks.
