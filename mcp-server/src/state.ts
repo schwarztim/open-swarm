@@ -557,23 +557,12 @@ interface ModelEntry {
 // SOURCE OF TRUTH: QVC Group GitHub Enterprise Copilot AI Controls (models.pdf)
 // RANKING SOURCE: llm-stats.com Code Arena scores (Feb 2026)
 const ALL_MODELS: ModelEntry[] = [
-  // Premium — high-capability, low RPM from Copilot API
-  { id: "claude-opus-4.6", tier: "premium", provider: "anthropic" }, // Code Arena #1 — 2,011
-  { id: "claude-opus-4.5", tier: "premium", provider: "anthropic" }, // Code Arena #3 — 1,561
-  { id: "gpt-5.1-codex-max", tier: "premium", provider: "openai" }, // premium API tier
-  { id: "gpt-5.3-codex", tier: "premium", provider: "openai" }, // premium API tier
-  // Standard — moderate RPM. Ordered by Code Arena score.
-  { id: "gemini-3-pro-preview", tier: "standard", provider: "google" }, // Code Arena #2 — 1,563
-  { id: "gpt-5.2", tier: "standard", provider: "openai" }, // Code Arena #4 — 1,528
-  { id: "gemini-3.1-pro-preview", tier: "standard", provider: "google" }, // Code Arena #5 — 1,516
-  { id: "claude-sonnet-4.6", tier: "standard", provider: "anthropic" }, // Code Arena #9 — 1,329
-  { id: "claude-sonnet-4.5", tier: "standard", provider: "anthropic" }, // Code Arena #13 — 1,115
-  { id: "gpt-5.2-codex", tier: "standard", provider: "openai" }, // Code Arena #15 — 1,055
-  { id: "gpt-5.1-codex", tier: "standard", provider: "openai" }, // ~Code Arena #16 — ~1,039
-  // Fast — high RPM, cheap. gemini-3-flash is #7 in Code Arena (1,510) — best value.
-  { id: "gemini-3-flash-preview", tier: "fast", provider: "google" }, // Code Arena #7 — 1,510
-  { id: "claude-haiku-4.5", tier: "fast", provider: "anthropic" }, // below top 20
-  { id: "gpt-5.1-codex-mini", tier: "fast", provider: "openai" }, // below top 20
+  // Premium
+  { id: "claude-opus-4.6", tier: "premium", provider: "anthropic" },
+  // Standard
+  { id: "claude-sonnet-4.6", tier: "standard", provider: "anthropic" },
+  // Fast
+  { id: "claude-haiku-4.5", tier: "fast", provider: "anthropic" },
 ];
 
 // ── Model Fallback System ─────────────────────────────────────────────
@@ -584,113 +573,9 @@ const ALL_MODELS: ModelEntry[] = [
 // Only references models enabled in QVC Enterprise Copilot (models.pdf)
 // Rule: always prefer opus-4.6 over opus-4.5 (same premium cost, 4.6 is #1 vs #3)
 const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
-  // ── Premium tier ──
-  "claude-opus-4.6": [
-    // #1 (2,011)
-    "claude-opus-4.5", // #3 (1,561)
-    "gpt-5.1-codex-max",
-    "gpt-5.3-codex",
-    "gemini-3-pro-preview", // #2 (1,563) — best standard
-    "gpt-5.2", // #4 (1,528)
-  ],
-  "claude-opus-4.5": [
-    // #3 (1,561) — use 4.6 first always
-    "claude-opus-4.6", // #1 (2,011)
-    "gpt-5.1-codex-max",
-    "gpt-5.3-codex",
-    "gemini-3-pro-preview", // #2 (1,563)
-    "gpt-5.2", // #4 (1,528)
-  ],
-  "gpt-5.1-codex-max": [
-    "gpt-5.3-codex",
-    "claude-opus-4.6", // #1 (2,011)
-    "claude-opus-4.5", // #3 (1,561)
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3-pro-preview", // #2 (1,563)
-  ],
-  "gpt-5.3-codex": [
-    "gpt-5.1-codex-max",
-    "claude-opus-4.6", // #1 (2,011)
-    "claude-opus-4.5", // #3 (1,561)
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3-pro-preview", // #2 (1,563)
-  ],
-  // ── Standard tier — ordered by Code Arena score ──
-  "gemini-3-pro-preview": [
-    // #2 (1,563)
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3.1-pro-preview", // #5 (1,516)
-    "claude-sonnet-4.6", // #9 (1,329)
-    "claude-sonnet-4.5", // #13 (1,115)
-    "gpt-5.2-codex", // #15 (1,055)
-  ],
-  "gpt-5.2": [
-    // #4 (1,528)
-    "gemini-3-pro-preview", // #2 (1,563)
-    "gemini-3.1-pro-preview", // #5 (1,516)
-    "claude-sonnet-4.6", // #9 (1,329)
-    "gpt-5.2-codex", // #15 (1,055)
-    "claude-sonnet-4.5", // #13 (1,115)
-  ],
-  "gemini-3.1-pro-preview": [
-    // #5 (1,516)
-    "gemini-3-pro-preview", // #2 (1,563)
-    "gpt-5.2", // #4 (1,528)
-    "claude-sonnet-4.6", // #9 (1,329)
-    "claude-sonnet-4.5", // #13 (1,115)
-    "gpt-5.2-codex", // #15 (1,055)
-  ],
-  "claude-sonnet-4.6": [
-    // #9 (1,329)
-    "gemini-3-pro-preview", // #2 (1,563)
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3.1-pro-preview", // #5 (1,516)
-    "claude-sonnet-4.5", // #13 (1,115)
-    "gpt-5.2-codex", // #15 (1,055)
-  ],
-  "claude-sonnet-4.5": [
-    // #13 (1,115)
-    "claude-sonnet-4.6", // #9 (1,329)
-    "gemini-3-pro-preview", // #2 (1,563)
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3.1-pro-preview", // #5 (1,516)
-    "gpt-5.2-codex", // #15 (1,055)
-  ],
-  "gpt-5.2-codex": [
-    // #15 (1,055)
-    "gpt-5.1-codex",
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3-pro-preview", // #2 (1,563)
-    "claude-sonnet-4.6", // #9 (1,329)
-    "gemini-3.1-pro-preview", // #5 (1,516)
-  ],
-  "gpt-5.1-codex": [
-    "gpt-5.2-codex", // #15 (1,055)
-    "gpt-5.2", // #4 (1,528)
-    "gemini-3-pro-preview", // #2 (1,563)
-    "claude-sonnet-4.6", // #9 (1,329)
-    "claude-sonnet-4.5", // #13 (1,115)
-  ],
-  // ── Fast tier — gemini-3-flash is Code Arena #7 (1,510!) ──
-  "gemini-3-flash-preview": [
-    // #7 (1,510) — best value model
-    "claude-haiku-4.5",
-    "gpt-5.1-codex-mini",
-    "gemini-3-pro-preview", // #2 (1,563) — standard fallback
-    "gemini-3.1-pro-preview", // #5 (1,516)
-  ],
-  "claude-haiku-4.5": [
-    "gemini-3-flash-preview", // #7 (1,510) — much higher Code Arena
-    "gpt-5.1-codex-mini",
-    "claude-sonnet-4.6", // #9 (1,329) — prefer 4.6 over 4.5
-    "claude-sonnet-4.5", // #13 (1,115)
-  ],
-  "gpt-5.1-codex-mini": [
-    "gemini-3-flash-preview", // #7 (1,510) — much higher Code Arena
-    "claude-haiku-4.5",
-    "gpt-5.2", // #4 (1,528)
-    "gpt-5.2-codex", // #15 (1,055)
-  ],
+  "claude-opus-4.6": ["claude-sonnet-4.6"],
+  "claude-sonnet-4.6": ["claude-opus-4.6"],
+  "claude-haiku-4.5": ["claude-sonnet-4.6"],
 };
 
 // ── Model Upgrade Map ─────────────────────────────────────────────────
@@ -1642,24 +1527,11 @@ const MANAGER_AGENT_DEFS: Array<{
   model: string;
   provider: string;
 }> = [
-  // Ordered by Code Arena score, rotating providers for diversity
-  {
-    agent: "manager-gemini",
-    model: "gemini-3-pro-preview", // Code Arena #2 (1,563)
-    provider: "google",
-  },
-  { agent: "manager-openai", model: "gpt-5.2", provider: "openai" }, // Code Arena #4 (1,528)
-  {
-    agent: "manager-gemini",
-    model: "gemini-3.1-pro-preview", // Code Arena #5 (1,516)
-    provider: "google",
-  },
   {
     agent: "manager-anthropic",
-    model: "claude-sonnet-4.6", // Code Arena #9 (1,329)
+    model: "claude-sonnet-4.6",
     provider: "anthropic",
   },
-  { agent: "manager-openai", model: "gpt-5.2-codex", provider: "openai" }, // Code Arena #15 (1,055)
 ];
 
 /** Get a validated manager definition — resolves model with fallback */
