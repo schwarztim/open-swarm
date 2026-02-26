@@ -385,5 +385,5 @@
       "url": "http://127.0.0.1:38546/mcp"
     }
   },
-  "small_model": "github-copilot/gpt-4.1"
+  "small_model": "github-copilot/gpt-5.1-codex-mini"
 }

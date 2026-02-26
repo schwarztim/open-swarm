@@ -421,6 +421,7 @@ const ALL_MODELS: ModelEntry[] = [
   { id: "claude-opus-4.6", tier: "premium", provider: "anthropic" },
   { id: "claude-opus-4.5", tier: "premium", provider: "anthropic" },
   { id: "gpt-5.1-codex-max", tier: "premium", provider: "openai" },
+  { id: "gpt-5.3-codex", tier: "premium", provider: "openai" },
   // Standard — coding, reviewing, general work
   { id: "claude-sonnet-4.6", tier: "standard", provider: "anthropic" },
   { id: "claude-sonnet-4.5", tier: "standard", provider: "anthropic" },
@@ -428,12 +429,12 @@ const ALL_MODELS: ModelEntry[] = [
   { id: "gpt-5.2-codex", tier: "standard", provider: "openai" },
   { id: "gpt-5.1-codex", tier: "standard", provider: "openai" },
   { id: "gpt-5.2", tier: "standard", provider: "openai" },
-  { id: "gpt-5.1", tier: "standard", provider: "openai" },
   { id: "gemini-3-pro-preview", tier: "standard", provider: "google" },
+  { id: "gemini-3.1-pro-preview", tier: "standard", provider: "google" },
   // Fast — explorers, merges, cheap parallel work
   { id: "claude-haiku-4.5", tier: "fast", provider: "anthropic" },
-  { id: "gpt-4.1", tier: "fast", provider: "openai" },
   { id: "gpt-5.1-codex-mini", tier: "fast", provider: "openai" },
+  { id: "gemini-3-flash-preview", tier: "fast", provider: "google" },
 ];
 
 // ── Model Fallback System ─────────────────────────────────────────────
@@ -487,43 +488,49 @@ const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
   "gpt-5.2-codex": [
     "gpt-5.1-codex",
     "gpt-5.2",
-    "gpt-5.1",
+    "gpt-5.3-codex",
     "claude-sonnet-4.5",
     "claude-sonnet-4",
   ],
   "gpt-5.1-codex": [
     "gpt-5.2-codex",
     "gpt-5.3-codex",
-    "gpt-5.1",
+    "gpt-5.2",
     "claude-sonnet-4",
     "claude-sonnet-4.5",
   ],
-  "gpt-5.2": ["gpt-5.1", "gpt-5.2-codex", "gpt-5.1-codex", "claude-sonnet-4.5"],
-  "gpt-5.1": ["gpt-5.2", "gpt-5.1-codex", "gpt-5.2-codex", "claude-sonnet-4"],
+  "gpt-5.2": ["gpt-5.2-codex", "gpt-5.1-codex", "gpt-5.3-codex", "claude-sonnet-4.5"],
   // Google
   "gemini-3-pro-preview": [
+    "gemini-3.1-pro-preview",
     "claude-sonnet-4.5",
     "gpt-5.2-codex",
     "claude-sonnet-4.6",
     "gpt-5.3-codex",
   ],
+  "gemini-3.1-pro-preview": [
+    "gemini-3-pro-preview",
+    "claude-sonnet-4.5",
+    "gpt-5.2-codex",
+    "claude-sonnet-4.6",
+  ],
   // Fast
   "claude-haiku-4.5": [
-    "gpt-4.1",
     "gpt-5.1-codex-mini",
+    "gemini-3-flash-preview",
     "claude-sonnet-4",
-    "gpt-5.1",
-  ],
-  "gpt-4.1": [
-    "gpt-5.1-codex-mini",
-    "claude-haiku-4.5",
-    "gpt-5.1",
-    "claude-sonnet-4",
+    "gpt-5.2",
   ],
   "gpt-5.1-codex-mini": [
-    "gpt-4.1",
     "claude-haiku-4.5",
-    "gpt-5.1",
+    "gemini-3-flash-preview",
+    "gpt-5.2",
+    "claude-sonnet-4",
+  ],
+  "gemini-3-flash-preview": [
+    "claude-haiku-4.5",
+    "gpt-5.1-codex-mini",
+    "gemini-3-pro-preview",
     "claude-sonnet-4",
   ],
 };
