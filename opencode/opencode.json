@@ -1,6 +1,9 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "github-copilot/claude-sonnet-4",
+  "instructions": [
+    "opencode/INSTRUCTIONS.md"
+  ],
   "permission": {
     "read": "allow",
     "edit": "allow",
@@ -50,6 +53,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-sonnet-4",
       "temperature": 0.3,
+      "prompt": "{file:opencode/agents/worker.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -70,7 +74,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-sonnet-4",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-anthropic.md}",
+      "prompt": "{file:opencode/agents/worker-anthropic.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -91,7 +95,7 @@
       "mode": "subagent",
       "model": "github-copilot/gpt-5.2-codex",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-openai.md}",
+      "prompt": "{file:opencode/agents/worker-openai.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -112,7 +116,7 @@
       "mode": "subagent",
       "model": "github-copilot/gemini-3-pro-preview",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-gemini.md}",
+      "prompt": "{file:opencode/agents/worker-gemini.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -133,7 +137,133 @@
       "mode": "subagent",
       "model": "github-copilot/claude-haiku-4.5",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/worker-haiku.md}",
+      "prompt": "{file:opencode/agents/worker-haiku.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-coder": {
+      "name": "worker-coder",
+      "description": "L3 Coding specialist — implementation, refactoring, feature development",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.3,
+      "prompt": "{file:opencode/agents/worker-coder.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-tester": {
+      "name": "worker-tester",
+      "description": "L3 Testing specialist — unit tests, integration tests, test coverage",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.2,
+      "prompt": "{file:opencode/agents/worker-tester.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-security": {
+      "name": "worker-security",
+      "description": "L3 Security auditor — vulnerability analysis, auth review, dependency audit",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.1,
+      "prompt": "{file:opencode/agents/worker-security.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-architect": {
+      "name": "worker-architect",
+      "description": "L3 Architecture specialist — system design, component structure, API design",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.2,
+      "prompt": "{file:opencode/agents/worker-architect.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-documenter": {
+      "name": "worker-documenter",
+      "description": "L3 Documentation specialist — READMEs, API docs, guides, changelogs",
+      "mode": "subagent",
+      "model": "github-copilot/claude-haiku-4.5",
+      "temperature": 0.3,
+      "prompt": "{file:opencode/agents/worker-documenter.md}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true,
+        "task": true
+      }
+    },
+    "worker-debugger": {
+      "name": "worker-debugger",
+      "description": "L3 Debugging specialist — root cause analysis, stack traces, log analysis",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4",
+      "temperature": 0.2,
+      "prompt": "{file:opencode/agents/worker-debugger.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -154,7 +284,7 @@
       "mode": "primary",
       "model": "github-copilot/claude-sonnet-4",
       "temperature": 0.1,
-      "prompt": "{file:~/.config/opencode/agents/swarm.md}",
+      "prompt": "{file:opencode/agents/swarm.md}",
       "tools": {
         "write": false,
         "edit": false,
@@ -187,7 +317,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-sonnet-4.5",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/manager.md}",
+      "prompt": "{file:opencode/agents/manager.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -208,7 +338,7 @@
       "mode": "subagent",
       "model": "github-copilot/gpt-5.2-codex",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/manager.md}",
+      "prompt": "{file:opencode/agents/manager.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -229,7 +359,7 @@
       "mode": "subagent",
       "model": "github-copilot/gemini-3-pro-preview",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/manager.md}",
+      "prompt": "{file:opencode/agents/manager.md}",
       "tools": {
         "write": true,
         "edit": true,
@@ -245,54 +375,14 @@
       }
     }
   },
-  "provider": {
-    "ollama": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama",
-      "options": {
-        "baseURL": "http://localhost:11434/v1"
-      },
-      "models": {
-        "qwen2.5-coder:32b": {
-          "name": "qwen2.5-coder:32b",
-          "autoCompactTokenLimit": 19200
-        },
-        "qwen2.5:72b": {
-          "name": "qwen2.5:72b",
-          "description": "72B model",
-          "autoCompactTokenLimit": 9800
-        },
-        "kimi-k2.5:cloud": {
-          "name": "kimi-k2.5:cloud",
-          "autoCompactTokenLimit": 19200
-        }
-      }
-    }
-  },
   "compaction": {
     "enabled": true,
     "threshold": 0.6
   },
   "mcp": {
-    "mcp-marketplace": {
-      "type": "local",
-      "command": [
-        "node",
-        "/Users/timothy.schwarz/.config/opencode/mcps/mcp-marketplace/node_modules/opencode-mcp-marketplace/dist/index.js"
-      ]
-    },
     "open-swarm": {
       "type": "remote",
       "url": "http://127.0.0.1:38546/mcp"
-    },
-    "mcpu": {
-      "type": "local",
-      "command": [
-        "mcpu-mcp",
-        "--auto-disconnect",
-        "--idle-timeout",
-        "10"
-      ]
     }
   },
   "small_model": "github-copilot/gpt-4.1"

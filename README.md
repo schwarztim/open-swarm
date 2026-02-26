@@ -74,15 +74,38 @@ brew install opencode
 # Authenticate with GitHub Copilot
 opencode auth login  # Select "GitHub Copilot" → device code flow
 
-# Copy agent configs
+# Clone and enter the repo
+git clone https://github.com/schwarztim/open-swarm.git
+cd open-swarm
+
+# Build and start the MCP server
+cd mcp-server && npm install && npm run build && npm start &
+cd ..
+
+# Launch opencode — it reads opencode/opencode.json automatically
+# Agent definitions, instructions, and MCP config are all in the repo
+opencode --agent swarm
+```
+
+> **Note:** All agent configs live in `opencode/opencode.json` with prompts referencing
+> `opencode/agents/*.md`. No manual copying to `~/.config/opencode/` is needed —
+> opencode reads the project-local config when launched from the repo root.
+
+#### Alternative: Global Install (for use outside this repo)
+
+```bash
+# Copy agent prompts to global config
+mkdir -p ~/.config/opencode/agents
 cp opencode/agents/*.md ~/.config/opencode/agents/
 
-# Add MCP server to ~/.config/opencode/opencode.json
-# (see Installation section below)
+# Merge agent registrations from opencode/opencode.json into
+# ~/.config/opencode/opencode.json (copy the entire "agent" section)
+# Update prompt paths from {file:opencode/agents/...} to
+# {file:~/.config/opencode/agents/...}
 
-# Launch the swarm
-alias swarm='opencode --agent swarm'
-swarm
+# Add the swarm alias
+echo 'alias swarm="opencode --agent swarm"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ### Option B: Copilot CLI (skill-based, no tool enforcement)
