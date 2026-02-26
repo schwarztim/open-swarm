@@ -9,9 +9,9 @@
 [![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
 [![OpenCode](https://img.shields.io/badge/OpenCode-Agent-4a90d9?logo=github)](https://github.com/anomalyco/opencode)
-[![Version](https://img.shields.io/badge/version-13.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-16.0-blue.svg)](#changelog)
 
-*Cooperation isn't programmed — it **emerges**.*
+_Cooperation isn't programmed — it **emerges**._
 
 ---
 
@@ -53,13 +53,13 @@ graph LR
     style E fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
 ```
 
-| Step | Paper Mechanism | Skill Implementation |
-|------|----------------|---------------------|
-| **1. Diversity** | Train agents against diverse co-player pool (§3.1) | Use ≥2 different LLM models (Opus, Sonnet, GPT, Gemini) |
-| **2. In-Context Inference** | Agents infer co-player strategy from observations (§3.2) | Each agent receives full anonymous interaction history |
-| **3. Cross-Communication** | Agents observe and react to each other's outputs (§3.2) | Parallel coders see other workstreams; critics see all changes |
-| **4. Mutual Shaping** | Adaptiveness creates vulnerability → pressure to cooperate (§3.2) | Critics score work; low scores trigger revision with cross-awareness |
-| **5. Convergence** | Cooperation emerges as stable equilibrium (§4) | Quality ≥7/10 across all agents → consensus achieved |
+| Step                        | Paper Mechanism                                                   | Skill Implementation                                                 |
+| --------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **1. Diversity**            | Train agents against diverse co-player pool (§3.1)                | Use ≥2 different LLM models (Opus, Sonnet, GPT, Gemini)              |
+| **2. In-Context Inference** | Agents infer co-player strategy from observations (§3.2)          | Each agent receives full anonymous interaction history               |
+| **3. Cross-Communication**  | Agents observe and react to each other's outputs (§3.2)           | Parallel coders see other workstreams; critics see all changes       |
+| **4. Mutual Shaping**       | Adaptiveness creates vulnerability → pressure to cooperate (§3.2) | Critics score work; low scores trigger revision with cross-awareness |
+| **5. Convergence**          | Cooperation emerges as stable equilibrium (§4)                    | Quality ≥7/10 across all agents → consensus achieved                 |
 
 ---
 
@@ -67,12 +67,12 @@ graph LR
 
 ### Prerequisites
 
-| Tool | Required | Install |
-|------|----------|---------|
-| [OpenCode](https://github.com/anomalyco/opencode) | ✅ | `brew install opencode` |
-| [MCPU](https://github.com/nicosql/mcpu) | ✅ (for MCP routing) | `npm install -g mcpu` |
-| GitHub Copilot subscription | ✅ | Enterprise, Business, or Pro+ |
-| Node.js ≥ 18 | ✅ | `brew install node` |
+| Tool                                              | Required             | Install                       |
+| ------------------------------------------------- | -------------------- | ----------------------------- |
+| [OpenCode](https://github.com/anomalyco/opencode) | ✅                   | `brew install opencode`       |
+| [MCPU](https://github.com/nicosql/mcpu)           | ✅ (for MCP routing) | `npm install -g mcpu`         |
+| GitHub Copilot subscription                       | ✅                   | Enterprise, Business, or Pro+ |
+| Node.js ≥ 18                                      | ✅                   | `brew install node`           |
 
 ### One-Shot Setup
 
@@ -167,14 +167,14 @@ The orchestrator delegates to workers, and workers can further delegate to sub-a
 - **Mutual shaping** (§3.2): Workers synthesize sub-agent outputs, looking for convergence (agreement) and novel insights (disagreement).
 - **Depth limit**: Sub-agents cannot spawn further sub-agents — prevents runaway agent trees.
 
-| Agent | Level | Role | Model | Tools |
-|-------|-------|------|-------|-------|
-| **swarm** | 1 | Orchestrator | claude-sonnet-4 | MCP tools (8) + `task()` |
-| **worker-anthropic** | 2-3 | Anthropic worker | claude-sonnet-4 | Full toolset + `task()` |
-| **worker-openai** | 2-3 | OpenAI worker | gpt-5.2-codex | Full toolset + `task()` |
-| **worker-gemini** | 2-3 | Google worker | gemini-3-pro-preview | Full toolset + `task()` |
-| **worker-haiku** | 2-3 | Fast/merge worker | claude-haiku-4.5 | Full toolset + `task()` |
-| **worker** | 2-3 | Default fallback | claude-sonnet-4 | Full toolset + `task()` |
+| Agent                | Level | Role              | Model                | Tools                    |
+| -------------------- | ----- | ----------------- | -------------------- | ------------------------ |
+| **swarm**            | 1     | Orchestrator      | claude-sonnet-4      | MCP tools (8) + `task()` |
+| **worker-anthropic** | 2-3   | Anthropic worker  | claude-sonnet-4      | Full toolset + `task()`  |
+| **worker-openai**    | 2-3   | OpenAI worker     | gpt-5.2-codex        | Full toolset + `task()`  |
+| **worker-gemini**    | 2-3   | Google worker     | gemini-3-pro-preview | Full toolset + `task()`  |
+| **worker-haiku**     | 2-3   | Fast/merge worker | claude-haiku-4.5     | Full toolset + `task()`  |
+| **worker**           | 2-3   | Default fallback  | claude-sonnet-4      | Full toolset + `task()`  |
 
 ### Provider-Based Dynamic Routing via `subagent_type`
 
@@ -206,19 +206,19 @@ worker-gemini (Gemini)    → spawns worker-anthropic (Claude) + worker-openai (
 flowchart TD
     START([🎯 User Task]) --> PREFLIGHT["/fleet + /plan"]
     PREFLIGHT --> TIER{Complexity?}
-    
+
     TIER -->|"Simple<br/>1-2 files"| DUO["<b>Duo</b><br/>2 agents"]
     TIER -->|"Medium<br/>multi-file"| TRIO["<b>Trio</b><br/>3 agents"]
     TIER -->|"Complex<br/>cross-domain"| FULL["<b>Full Swarm</b><br/>6+ agents"]
     TIER -->|"Massive<br/>50+ files"| BLITZ["<b>Blitz</b><br/>10+ agents"]
     TIER -->|"Decision<br/>ambiguous"| DEBATE["<b>Debate</b><br/>N+1 agents"]
-    
+
     DUO --> EXECUTE
     TRIO --> EXECUTE
     FULL --> EXECUTE
     BLITZ --> EXECUTE
     DEBATE --> EXECUTE
-    
+
     EXECUTE["Execute Rounds<br/><i>Cross-communication via<br/>anonymous history</i>"] --> MERGE["🔀 Merge Step<br/><i>Haiku synthesizes<br/>parallel outputs</i>"]
     MERGE --> REVIEW{"🔍 Review<br/>(MANDATORY)"}
     style MERGE fill:#533483,stroke:#e94560,stroke-width:2px,color:#fff
@@ -306,11 +306,11 @@ sequenceDiagram
     participant U as 🎯 User Task
     participant C as 🔨 clean-code<br/>(Sonnet)
     participant R as 🔍 code-review<br/>(Codex)
-    
+
     U->>C: Task + context
     C->>R: Anonymous implementation
     R->>R: Score & critique
-    
+
     alt Score ≥ 7/10
         R-->>U: ✅ Converged
     else Score < 7/10
@@ -329,17 +329,17 @@ sequenceDiagram
     participant C as 🔨 clean-code<br/>(Sonnet)
     participant R as 🔍 code-review<br/>(Codex)
     participant T as 🧪 Tester<br/>(Haiku)
-    
+
     U->>A: Task + context
     A->>C: Anonymous design
     C->>R: Anonymous implementation
     R->>R: Score & critique
-    
+
     alt Score < 7/10
         R->>C: Anonymous feedback + full history
         C->>R: Revised (with all prior context)
     end
-    
+
     R->>T: Run validation
     T-->>U: ✅ Tests pass — Converged
 ```
@@ -356,7 +356,7 @@ sequenceDiagram
     participant X as 🔗 Integration<br/>(Sonnet)
     participant T as 🧪 Tester<br/>(Haiku)
     participant S as 🧠 Synthesizer<br/>(Opus)
-    
+
     U->>E: Task description
     Note over E: ⚡ 3 explorers in parallel (Haiku)
     E->>E: 🔀 MERGE_STEP (Haiku)<br/>Deduplicate & structure
@@ -365,13 +365,13 @@ sequenceDiagram
     Note over C: ⚡ Parallel coders, each sees<br/>other workstreams (cross-comm)
     C->>R: Anonymous implementations
     R->>R: Score per workstream
-    
+
     loop Until all ≥ 7/10 (max 3 rounds)
         R->>C: Critique + other workstreams' code
         Note over C: Coder sees what others built
         C->>R: Revised implementation
     end
-    
+
     R->>X: All changes
     Note over X: Cross-workstream integration check
     X->>T: Validate
@@ -387,19 +387,19 @@ sequenceDiagram
     participant PA as 💬 Proposer A<br/>(Model A)
     participant PB as 💬 Proposer B<br/>(Model B)
     participant S as 🧠 Synthesizer<br/>(Opus)
-    
+
     U->>PA: Frame question
     U->>PB: Frame question
     Note over PA,PB: ⚡ Propose in parallel
-    
+
     PA->>PB: Anonymous proposal A
     PB->>PA: Anonymous proposal B
     Note over PA,PB: ⚡ Cross-critique in parallel
-    
+
     PA->>PA: Rebuttal to B's critique
     PB->>PB: Rebuttal to A's critique
     Note over PA,PB: ⚡ Rebuttals in parallel
-    
+
     PA->>S: Full debate history
     PB->>S: Full debate history
     S-->>U: 🏆 Winner with reasoning + confidence
@@ -419,18 +419,18 @@ sequenceDiagram
     participant MCP as 🐝 MCP Server
     participant W1 as 🔨 Worker 1
     participant W2 as 🔨 Worker 2
-    
+
     L1->>M: Dispatch group
     M->>W1: Assign task
     M->>W2: Assign task
     Note over W1,W2: ⚡ Parallel execution
     W1-->>M: Output A
     W2-->>M: Output B (conflicting!)
-    
+
     Note over M: ⚠️ Disagreement detected
     M->>MCP: swarm_debate(start, trigger=disagreement)
     MCP-->>M: debateId, participants
-    
+
     rect rgb(40, 40, 80)
         Note over M,W2: 🔥 DEBATE ROUND 1
         M->>MCP: swarm_debate(next)
@@ -440,7 +440,7 @@ sequenceDiagram
         W1-->>M: Position A
         W2-->>M: Position B
         M->>MCP: swarm_debate(submit) ×2
-        
+
         M->>MCP: swarm_debate(next)
         MCP-->>M: critique prompts
         M->>W1: Critique B (anonymous)
@@ -448,7 +448,7 @@ sequenceDiagram
         W1-->>M: Critique of B
         W2-->>M: Critique of A
         M->>MCP: swarm_debate(submit) ×2
-        
+
         M->>MCP: swarm_debate(next)
         MCP-->>M: rebuttal prompts
         M->>W1: Defend/revise
@@ -457,10 +457,10 @@ sequenceDiagram
         W2-->>M: Rebuttal
         M->>MCP: swarm_debate(submit) ×2
     end
-    
+
     M->>MCP: swarm_debate(evaluate)
     MCP-->>M: convergence + sycophancy check
-    
+
     alt Converged
         M->>MCP: swarm_debate(synthesize)
         MCP-->>M: synthesis prompt
@@ -475,22 +475,22 @@ sequenceDiagram
 
 #### Debate Scoring Dimensions
 
-| Dimension | Max | What It Measures |
-|-----------|-----|-----------------|
-| Evidence Quality | 3 | Code refs, data, concrete examples |
-| Reasoning Clarity | 3 | Logical structure, causal chains |
-| Rebuttal Effectiveness | 3 | Addressed critiques with new evidence |
-| Novel Contribution | 2 | Unique insights not in other positions |
+| Dimension              | Max | What It Measures                       |
+| ---------------------- | --- | -------------------------------------- |
+| Evidence Quality       | 3   | Code refs, data, concrete examples     |
+| Reasoning Clarity      | 3   | Logical structure, causal chains       |
+| Rebuttal Effectiveness | 3   | Addressed critiques with new evidence  |
+| Novel Contribution     | 2   | Unique insights not in other positions |
 
 #### Sycophancy Detection Signals
 
-| Signal | What It Detects |
-|--------|----------------|
-| Rebuttal collapse | Rebuttals <30% length of positions |
-| Hollow agreement | Agreement markers without substantive reasoning |
-| Soft critiques | 3:1 ratio of hedging vs substantive critique markers |
-| Position mimicry | Positions copying each other's prior content |
-| Minimal defense | "Position unchanged" with <200 chars |
+| Signal            | What It Detects                                      |
+| ----------------- | ---------------------------------------------------- |
+| Rebuttal collapse | Rebuttals <30% length of positions                   |
+| Hollow agreement  | Agreement markers without substantive reasoning      |
+| Soft critiques    | 3:1 ratio of hedging vs substantive critique markers |
+| Position mimicry  | Positions copying each other's prior content         |
+| Minimal defense   | "Position unchanged" with <200 chars                 |
 
 ### Blitz Flow (Maximum Throughput)
 
@@ -504,7 +504,7 @@ sequenceDiagram
     participant X as 🔗 Integration<br/>(Opus)
     participant T as 🧪 Tester
     participant S as 🧠 Synthesizer<br/>(Opus)
-    
+
     U->>E: Task scope
     Note over E: ⚡ 5 parallel explorers<br/>structure/patterns/deps/gaps/domain
     E->>E: 🔀 MERGE_STEP (Haiku)<br/>Deduplicate & structure
@@ -515,12 +515,12 @@ sequenceDiagram
     C->>R: All implementations
     Note over R: ⚡ 2 parallel critics<br/>reviewing different batches
     R->>R: Score per workstream
-    
+
     loop Any workstream < 7/10 (max 3)
         R->>C: Critique + other coders' outputs
         C->>R: Revised (cross-aware)
     end
-    
+
     R->>X: All changes
     Note over X: Cross-workstream integration gate
     X->>T: Validate
@@ -566,6 +566,7 @@ sequenceDiagram
 ## 🚀 Execution Modes
 
 ### Task Mode (default, recommended)
+
 The swarm agent dispatches work to `worker-*` subagents via OpenCode's native `task()` tool. Each `task()` call creates a child session with its own context window, linked to the parent via `parentID`. The orchestrator can dispatch multiple `task()` calls in a single turn for parallel execution, or use OpenCode's `batch` tool for guaranteed parallelism.
 
 ```
@@ -578,6 +579,7 @@ task(subagent_type="worker-gemini", description="Create test suite", prompt="...
 **Key advantage:** Sessions are navigable (Leader+Right/Left), `task_id` enables session resumption, and the model is determined by the worker agent's config — not hardcoded per call.
 
 ### Subprocess Mode (unleashed/advanced)
+
 The swarm agent spawns **independent `opencode run` processes** via bash. Each process runs in its own terminal with its own context window. True OS-level parallelism — your CPU will feel it.
 
 ```bash
@@ -595,19 +597,21 @@ wait
 
 The MCP server tracks convergence across rounds:
 
-| Metric | Description |
-|--------|-------------|
-| `currentAvg` | Average quality score this round |
-| `previousAvg` | Average quality score last round |
-| `delta` | Improvement between rounds |
-| `stalling` | `true` if delta < 0.5 (agents stuck) |
-| `trend` | Array of all round averages |
+| Metric        | Description                          |
+| ------------- | ------------------------------------ |
+| `currentAvg`  | Average quality score this round     |
+| `previousAvg` | Average quality score last round     |
+| `delta`       | Improvement between rounds           |
+| `stalling`    | `true` if delta < 0.5 (agents stuck) |
+| `trend`       | Array of all round averages          |
 
 When **stalling** is detected, the merge agent receives special guidance:
-> *"The swarm is stalling. Look for novel, outlier ideas that might break the deadlock. Be bold."*
+
+> _"The swarm is stalling. Look for novel, outlier ideas that might break the deadlock. Be bold."_
 
 When **converging well** (delta > 0.5):
-> *"Refine details and polish. Focus on consistency."*
+
+> _"Refine details and polish. Focus on consistency."_
 
 ---
 
@@ -647,7 +651,7 @@ Previous versions used prompt instructions to coordinate agents. **v13.0 makes c
 ### How It Works (Programmatic, Not Prompt-Based)
 
 1. **Orchestrator dispatches workers** → calls `swarm_next`, gets `task()` parameters
-2. **Worker completes** → orchestrator calls `swarm_submit(output=...)` 
+2. **Worker completes** → orchestrator calls `swarm_submit(output=...)`
 3. **MCP auto-posts to board** → `swarm_submit` automatically relays anonymized output as a `finding`
 4. **Orchestrator can post manually** → `swarm_relay(type="blocker", ...)` to flag issues
 5. **Next dispatch includes board** → `swarm_next` auto-injects `--- FINDINGS FROM OTHER WORKSTREAMS ---` into prompts
@@ -655,12 +659,12 @@ Previous versions used prompt instructions to coordinate agents. **v13.0 makes c
 
 ### Message Types
 
-| Type | Who Posts | Effect |
-|------|----------|--------|
-| `finding` | Auto (via submit) or orchestrator | Shared with other workstreams in next dispatch |
-| `blocker` | Orchestrator | Halts dependent workstreams, requires `decision` to resolve |
-| `decision` | Orchestrator only | Resolves blockers, recorded permanently |
-| `status` | Orchestrator | Progress tracking, no dispatch effect |
+| Type       | Who Posts                         | Effect                                                      |
+| ---------- | --------------------------------- | ----------------------------------------------------------- |
+| `finding`  | Auto (via submit) or orchestrator | Shared with other workstreams in next dispatch              |
+| `blocker`  | Orchestrator                      | Halts dependent workstreams, requires `decision` to resolve |
+| `decision` | Orchestrator only                 | Resolves blockers, recorded permanently                     |
+| `status`   | Orchestrator                      | Progress tracking, no dispatch effect                       |
 
 ### Orchestrator Decision Loop
 
@@ -710,41 +714,45 @@ These aren't suggestions — they're **empirically validated** by the paper's ab
 <td width="25%" align="center">
 
 ### 🎭 Rule 1
+
 **Use Diverse Models**
 
 Same model for all agents produces agreeable, mediocre output. Use ≥2 different models.
 
-*Paper §3.1: no diversity = defection*
+_Paper §3.1: no diversity = defection_
 
 </td>
 <td width="25%" align="center">
 
 ### 👤 Rule 2
+
 **Keep History Anonymous**
 
-Never label contributions with role names. Say *"A previous contributor proposed..."*
+Never label contributions with role names. Say _"A previous contributor proposed..."_
 
-*Paper §3.1 ablation: explicit IDs = defection*
+_Paper §3.1 ablation: explicit IDs = defection_
 
 </td>
 <td width="25%" align="center">
 
 ### 📋 Rule 3
+
 **Pass Full History**
 
 Every agent gets the complete interaction sequence. Never truncate or summarize away rounds.
 
-*Paper §A.2: no history = no adaptation*
+_Paper §A.2: no history = no adaptation_
 
 </td>
 <td width="25%" align="center">
 
 ### 🔗 Rule 4
+
 **Cross-Communicate**
 
 Parallel agents must see each other's outputs where relevant. Isolation produces mediocre work.
 
-*Paper §3.2: mutual shaping drives cooperation*
+_Paper §3.2: mutual shaping drives cooperation_
 
 </td>
 </tr>
@@ -756,12 +764,12 @@ Parallel agents must see each other's outputs where relevant. Isolation produces
 
 Aligned with [GitHub's best practices](https://docs.github.com/copilot/how-tos/copilot-cli/cli-best-practices):
 
-| Role | Model | Rationale |
-|------|-------|-----------|
-| **Architect / Synthesizer** | Claude Opus | Complex reasoning, system design, nuanced decisions |
-| **Coder** | Claude Sonnet | Day-to-day implementation, fast and cost-effective |
-| **Critic** | GPT Codex | Excellent for reviewing code produced by other models |
-| **Explorer / Tester** | Claude Haiku | Fast read-only tasks, minimal token cost |
+| Role                        | Model         | Rationale                                             |
+| --------------------------- | ------------- | ----------------------------------------------------- |
+| **Architect / Synthesizer** | Claude Opus   | Complex reasoning, system design, nuanced decisions   |
+| **Coder**                   | Claude Sonnet | Day-to-day implementation, fast and cost-effective    |
+| **Critic**                  | GPT Codex     | Excellent for reviewing code produced by other models |
+| **Explorer / Tester**       | Claude Haiku  | Fast read-only tasks, minimal token cost              |
 
 > The key is **model diversity** — using the same model for all roles produces agreeable but mediocre output. Cross-model review catches issues same-model review misses.
 
@@ -790,6 +798,7 @@ thv list | grep open-swarm
 ### Wire into OpenCode
 
 Add to `~/.config/opencode/opencode.json`:
+
 ```json
 {
   "mcp": {
@@ -802,11 +811,13 @@ Add to `~/.config/opencode/opencode.json`:
 ```
 
 Copy agent configs:
+
 ```bash
 cp opencode/agents/*.md ~/.config/opencode/agents/
 ```
 
 Add the swarm orchestrator AND worker agents to the `"agent"` section of `opencode.json`:
+
 ```json
 {
   "agent": {
@@ -818,13 +829,28 @@ Add the swarm orchestrator AND worker agents to the `"agent"` section of `openco
       "temperature": 0.1,
       "prompt": "{file:~/.config/opencode/agents/swarm.md}",
       "tools": {
-        "write": false, "edit": false, "patch": false,
-        "bash": true, "task": true,
-        "glob": false, "grep": false, "ls": false, "view": false,
-        "fetch": false, "diagnostics": false,
-        "swarm_init": true, "swarm_next": true, "swarm_submit": true,
-        "swarm_merge": true, "swarm_status": true, "swarm_gate": true,
-        "swarm_collect": true, "swarm_models": true
+        "write": false,
+        "edit": false,
+        "patch": false,
+        "bash": true,
+        "task": true,
+        "glob": false,
+        "grep": false,
+        "ls": false,
+        "view": false,
+        "fetch": false,
+        "diagnostics": false,
+        "swarm_init": true,
+        "swarm_next": true,
+        "swarm_submit": true,
+        "swarm_merge": true,
+        "swarm_status": true,
+        "swarm_gate": true,
+        "swarm_collect": true,
+        "swarm_models": true,
+        "swarm_learn": true,
+        "swarm_watch": true,
+        "swarm_worker": true
       }
     },
     "worker-anthropic": {
@@ -833,7 +859,19 @@ Add the swarm orchestrator AND worker agents to the `"agent"` section of `openco
       "model": "github-copilot/claude-sonnet-4",
       "temperature": 0.3,
       "prompt": "{file:~/.config/opencode/agents/worker-anthropic.md}",
-      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "task": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true
+      }
     },
     "worker-openai": {
       "name": "worker-openai",
@@ -841,7 +879,19 @@ Add the swarm orchestrator AND worker agents to the `"agent"` section of `openco
       "model": "github-copilot/gpt-5.2-codex",
       "temperature": 0.3,
       "prompt": "{file:~/.config/opencode/agents/worker-openai.md}",
-      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "task": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true
+      }
     },
     "worker-gemini": {
       "name": "worker-gemini",
@@ -849,7 +899,19 @@ Add the swarm orchestrator AND worker agents to the `"agent"` section of `openco
       "model": "github-copilot/gemini-3-pro-preview",
       "temperature": 0.3,
       "prompt": "{file:~/.config/opencode/agents/worker-gemini.md}",
-      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "task": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true
+      }
     },
     "worker-haiku": {
       "name": "worker-haiku",
@@ -857,7 +919,19 @@ Add the swarm orchestrator AND worker agents to the `"agent"` section of `openco
       "model": "github-copilot/claude-haiku-4.5",
       "temperature": 0.2,
       "prompt": "{file:~/.config/opencode/agents/worker-haiku.md}",
-      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "task": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true
+      }
     },
     "worker": {
       "name": "worker",
@@ -865,7 +939,19 @@ Add the swarm orchestrator AND worker agents to the `"agent"` section of `openco
       "model": "github-copilot/claude-sonnet-4",
       "temperature": 0.3,
       "prompt": "{file:~/.config/opencode/agents/worker.md}",
-      "tools": { "write": true, "edit": true, "patch": true, "bash": true, "task": true, "glob": true, "grep": true, "ls": true, "view": true, "fetch": true, "diagnostics": true }
+      "tools": {
+        "write": true,
+        "edit": true,
+        "patch": true,
+        "bash": true,
+        "task": true,
+        "glob": true,
+        "grep": true,
+        "ls": true,
+        "view": true,
+        "fetch": true,
+        "diagnostics": true
+      }
     }
   }
 }
@@ -882,22 +968,25 @@ source ~/.zshrc
 
 ### MCP Server Tools
 
-| Tool | Purpose |
-|------|---------|
-| `swarm_init` | Initialize session, select tier, set execution mode |
-| `swarm_next` | Get task params or subprocess spawn commands (auto-injects board context) |
-| `swarm_submit` | Submit completed output, auto-posts to board, advance state |
-| `swarm_merge` | Merge parallel outputs with convergence guidance |
-| `swarm_status` | Full session state + convergence metrics |
-| `swarm_gate` | Quality gate: proceed, retry, or force-advance |
-| `swarm_collect` | Collect subprocess outputs (subprocess mode only) |
-| `swarm_models` | List or set available models dynamically |
-| `swarm_relay` | **NEW** — Post findings/blockers/decisions to the shared board |
-| `swarm_board` | **NEW** — Read board state, check ready/blocked workstreams |
-| `swarm_debate` | **NEW** — Structured multi-round debates with convergence + sycophancy detection |
-| `swarm_claim` | **NEW** — File ownership claims to prevent worker conflicts |
-| `swarm_memory` | **NEW** — Pattern memory: store/search successful approaches |
-| `swarm_consensus` | **NEW** — Lightweight worker consensus for complex decisions |
+| Tool              | Purpose                                                                          |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `swarm_init`      | Initialize session, select tier, set execution mode                              |
+| `swarm_next`      | Get task params or subprocess spawn commands (auto-injects board context)        |
+| `swarm_submit`    | Submit completed output, auto-posts to board, advance state                      |
+| `swarm_merge`     | Merge parallel outputs with convergence guidance                                 |
+| `swarm_status`    | Full session state + convergence metrics                                         |
+| `swarm_gate`      | Quality gate: proceed, retry, or force-advance                                   |
+| `swarm_collect`   | Collect subprocess outputs (subprocess mode only)                                |
+| `swarm_models`    | List or set available models dynamically                                         |
+| `swarm_relay`     | **NEW** — Post findings/blockers/decisions to the shared board                   |
+| `swarm_board`     | **NEW** — Read board state, check ready/blocked workstreams                      |
+| `swarm_debate`    | **NEW** — Structured multi-round debates with convergence + sycophancy detection |
+| `swarm_claim`     | **NEW** — File ownership claims to prevent worker conflicts                      |
+| `swarm_memory`    | **NEW** — Pattern memory: store/search successful approaches                     |
+| `swarm_consensus` | **NEW** — Lightweight worker consensus for complex decisions                     |
+| `swarm_learn`     | **NEW** — Self-learning loop: retrieve/judge/distill/consolidate/route patterns  |
+| `swarm_watch`     | **NEW** — Subscribe background workers to trigger events (gate_pass, gate_fail)  |
+| `swarm_worker`    | **NEW** — Dispatch/status/results for background analysis workers                |
 
 ### Invocation
 
@@ -917,31 +1006,31 @@ swarm
 
 ### Quick — Duo
 
-> *"Add input validation to the user registration endpoint"*
+> _"Add input validation to the user registration endpoint"_
 
 Copilot auto-selects **Duo** (single-file change + review), spawns a Coder (Sonnet) and Critic (GPT), converges in ~2 rounds.
 
 ### Medium — Trio
 
-> *"Add rate limiting middleware to all API endpoints"*
+> _"Add rate limiting middleware to all API endpoints"_
 
 Copilot selects **Trio** — Architect designs the approach, Coder implements, Critic reviews, Tester validates.
 
 ### Complex — Full Swarm
 
-> *"Refactor the authentication system from session-based to JWT with refresh tokens"*
+> _"Refactor the authentication system from session-based to JWT with refresh tokens"_
 
 Copilot selects **Full Swarm** — Explorers map the auth code in parallel, Architect designs migration, Coder implements, Critic catches edge cases, Tester validates, Synthesizer produces final output with confidence score.
 
 ### Decision — Debate
 
-> *"Should we use GraphQL or REST for the new API?"*
+> _"Should we use GraphQL or REST for the new API?"_
 
 Copilot selects **Debate** — two proposers argue for each approach with different models, cross-critique, rebut, then Synthesizer picks a winner with reasoning.
 
 ### Massive — Blitz
 
-> *"Swarm this: ~/Projects/my-platform — there's a lot of unwired logic and stubs that need to be completed"*
+> _"Swarm this: ~/Projects/my-platform — there's a lot of unwired logic and stubs that need to be completed"_
 
 Copilot selects **Blitz** — 5 parallel explorers (structure/patterns/deps/gaps/domain) recon the codebase, Architect triages into P0/P1/P2 workstreams, N parallel coders build simultaneously with cross-awareness of each other's workstreams, parallel critics review in batches, integration check catches cross-workstream conflicts, Synthesizer produces confidence score.
 
@@ -964,12 +1053,12 @@ Workers are now **domain-specialized** with roles AND providers (2D matrix):
 
 ### Task Complexity Router
 
-| Complexity | Worker Pool | Model Tier | Use Case |
-|-----------|------------|------------|----------|
-| trivial | fast pool | haiku/gpt-4.1 | Doc updates, renames |
-| standard | coder pool | sonnet/gpt-5 | Feature implementation |
-| complex | premium pool | opus/gpt-5.1 | Architecture, security |
-| review | critic pool | alternating | Code review, audits |
+| Complexity | Worker Pool  | Model Tier    | Use Case               |
+| ---------- | ------------ | ------------- | ---------------------- |
+| trivial    | fast pool    | haiku/gpt-4.1 | Doc updates, renames   |
+| standard   | coder pool   | sonnet/gpt-5  | Feature implementation |
+| complex    | premium pool | opus/gpt-5.1  | Architecture, security |
+| review     | critic pool  | alternating   | Code review, audits    |
 
 ### File Claims Flow
 
@@ -1061,7 +1150,7 @@ File write/edit     ❌                ✅            ✅
 bash                ✅                ✅            ✅
 task() (spawn)      ✅                ✅            ✅ (depth-limited)
 glob/grep/view      ❌                ✅            ✅
-MCP tools (16)      ✅                ❌            ❌
+MCP tools (17)      ✅                ❌            ❌
 ```
 
 **Why L1 has no file tools:** Forces delegation. The orchestrator never writes code.
@@ -1079,6 +1168,7 @@ L1 (orchestrator) → L2 (manager) → L3 (worker) → L4 (sub-worker)
 ```
 
 Rules:
+
 - Use a **different provider** than yourself (cognitive diversity)
 - Pass **anonymous context** (don't reveal your own approach)
 - Sub-agents cannot spawn further sub-agents
@@ -1122,16 +1212,21 @@ See [`docs/agent-definition-guide.md`](docs/agent-definition-guide.md) for the c
 3. Update `getRoleAgentName()` in `mcp-server/src/state.ts` to map the role
 4. Build: `cd mcp-server && npm run build`
 
-### Persistent Pattern Memory (v16.0)
+### Persistent Memory & Self-Learning (v16.0)
 
-Patterns now survive MCP server restarts via `mcp-server/src/persistence.ts`:
-- **SQLite backend** (preferred, Node 22.5+): stores in `mcp-server/data/patterns.db`
-- **JSON fallback**: stores in `mcp-server/data/patterns.json`
-- Patterns are saved after successful quality gates and loaded on server start
+Full persistent memory layer with semantic search and a 5-stage self-learning loop:
+
+- **SQLite + ONNX embeddings** — `memory.ts` stores patterns, outcomes, and worker records in `data/swarm.db` via better-sqlite3 (with Node 22.5+ `node:sqlite` and in-memory fallbacks)
+- **384-dim vector search** — `embeddings.ts` uses all-MiniLM-L6-v2 ONNX model for semantic embeddings with LRU cache; `vector-store.ts` provides HNSW-style nearest-neighbor search
+- **Self-learning loop** (`learning.ts`): RETRIEVE (semantic pattern lookup) → JUDGE (outcome recording after quality gate) → DISTILL (extract reusable patterns from score ≥8 sessions) → CONSOLIDATE (merge near-duplicates, decay unused, prune dead) → ROUTE (recommend models/approaches from past successes)
+- **Background workers** (`workers.ts`): orchestrator-dispatched analysis workers (audit, optimize, testgaps, document) triggered by gate_pass/gate_fail/session_end events
+- **Auto-wired**: `swarm_init` auto-retrieves prior patterns, `swarm_gate` auto-judges + auto-distills, `swarm_dispatch` auto-routes model selection
+- **Migration**: old `patterns.json` auto-imported to SQLite on first start, renamed to `.migrated`
 
 ### Anti-Drift Enforcement (v16.0)
 
 `handleSwarmSubmit()` now calls `checkDrift()` on every submission:
+
 - Compares output alignment against the original task assignment
 - Configurable threshold (default: 0.6 alignment score)
 - On drift detection: rejects submission with feedback, worker retries
@@ -1188,11 +1283,12 @@ Address each challenge. Reference patterns from other workstreams where relevant
 
 Wołczyk, M., Weis, M.A., Nasser, R., Saurous, R.A., Agüera y Arcas, B., Sacramento, J., & Meulemans, A. (2026).
 
-*arXiv:2602.16301* · [PDF](https://arxiv.org/pdf/2602.16301) · [Abstract](https://arxiv.org/abs/2602.16301)
+_arXiv:2602.16301_ · [PDF](https://arxiv.org/pdf/2602.16301) · [Abstract](https://arxiv.org/abs/2602.16301)
 
 The paper demonstrates that cooperation emerges naturally in multi-agent RL when sequence model agents are trained against diverse co-player pools. Agents develop in-context best-response strategies, become vulnerable to shaping through their adaptiveness, and mutual shaping pressure resolves into cooperative behavior — without explicit meta-learning or centralized coordination.
 
 **Key findings translated into this skill:**
+
 - 🎭 Agent diversity forces in-context strategy inference (§3.1)
 - 👤 Anonymous history prevents cooperation collapse (§3.1 ablation)
 - 🔗 Cross-communication enables mutual observation and adaptation (§3.2)
@@ -1224,7 +1320,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - [x] **Subprocess mode** (v9.0 — true OS-level parallelism via `opencode run`)
 - [x] **Consensus-based merge** (v9.0 — convergence guides synthesis)
 - [x] **Unleashed tier** (v10.0 — 32 parallel workstreams, "make it hurt")
-- [ ] Cross-session lesson tracking with JSONL persistence
+- [x] **Cross-session learning with SQLite + vector search** (v16.0 — persistent memory, self-learning loop)
 - [ ] Swarm visualization/replay tool
 - [ ] Benchmark suite against single-agent baselines
 - [ ] Auto-scaling workstream count based on system resources
@@ -1233,7 +1329,22 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 
 ## 📋 Changelog
 
+### v16.0 (2026-02-26)
+
+- **Persistent Memory Layer** — SQLite-backed storage (`memory.ts`) with 3-tier fallback (better-sqlite3 → node:sqlite → in-memory). All patterns, outcomes, and worker records survive restarts in `data/swarm.db`
+- **ONNX Semantic Embeddings** — `embeddings.ts` lazy-loads all-MiniLM-L6-v2 for 384-dim vectors with 256-entry LRU cache. `vector-store.ts` provides HNSW-style nearest-neighbor index
+- **Self-Learning Loop** — `learning.ts` implements 5-stage pipeline: RETRIEVE (semantic pattern search + confidence boost) → JUDGE (outcome recording with quality thresholds) → DISTILL (extract reusable patterns from high-scoring sessions, dedup via cosine >0.9) → CONSOLIDATE (merge similar, decay unused >30d, prune dead, clean expired TTLs) → ROUTE (recommend models from cross-referenced outcomes)
+- **Background Workers** — `workers.ts` provides orchestrator-dispatched analysis workers (audit/optimize/testgaps/document) triggered by gate events. Workers return task() call params, not child processes
+- **New `swarm_learn` tool** — retrieve/judge/distill/consolidate/stats actions for the learning loop
+- **New `swarm_watch` tool** — subscribe/list/check background worker triggers per session
+- **New `swarm_worker` tool** — dispatch/status/results for manual background worker control
+- **Auto-wired learning hooks** — `swarm_init` auto-retrieves prior patterns, `swarm_gate` auto-judges + auto-distills on score ≥8, `swarm_dispatch` auto-routes model selection from outcome history
+- **Types extraction** — `types.ts` centralizes all type definitions (PatternEntryV2, Outcome, WorkerRecord, BackgroundWorkerType, WorkerTriggerEvent)
+- **Migration** — auto-imports legacy `patterns.json` into SQLite on first init, renames to `.migrated`
+- 17 MCP tools total (up from 14)
+
 ### v15.0 (2026-02-25)
+
 - **L3 Worker Specialization** — Workers now have domain ROLES (coder, tester, security, architect, documenter, debugger, devops, meta-worker) in addition to provider-based model assignment
 - **Intelligent Task Router** — `classifyTaskComplexity()` routes tasks to appropriate model pools (trivial→fast, standard→coder, complex→premium, review→critic)
 - **6 new role-specific agent configs** — `worker-coder.md`, `worker-tester.md`, `worker-security.md`, `worker-architect.md`, `worker-documenter.md`, `worker-debugger.md`
@@ -1246,6 +1357,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - **2D worker matrix** — Workers characterized by Role (WHAT they do) × Provider (HOW they think)
 
 ### v14.0 (2026-02-24)
+
 - **L2 debate protocol** with partial consensus, fast-track, devil's advocate, and post-implementation validation
 - **Partial consensus per-claim tracking** — `extractClaimsFromPositions()`, `updateClaimConsensus()`
 - **Fast-track consensus** — Skip unnecessary rounds when Round 1 converges cleanly
@@ -1253,6 +1365,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - **Validation checkpoint** — Post-implementation verification reopens debate if findings diverge
 
 ### v13.0 (2026-02-20)
+
 - **Programmatic communication layer** — replaced prompt-based coordination with MCP server state management
 - **New `swarm_relay` tool:** Orchestrator posts findings, blockers, decisions to a shared board
 - **New `swarm_board` tool:** Orchestrator reads full board state, sees ready/blocked workstreams
@@ -1265,6 +1378,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - 10 MCP tools total (up from 8)
 
 ### v12.0 (2026-02-20)
+
 - **3-level agent hierarchy:** Orchestrator → Workers → Sub-agents (arXiv:2602.16301 §3.2)
 - Workers now have `task: true` — can spawn sub-agents for complex subtasks
 - **Cross-provider diversity enforced:** Workers must dispatch to DIFFERENT providers than themselves
@@ -1274,6 +1388,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - Mapped to paper mechanism: diversity → in-context inference → mutual shaping → cooperation
 
 ### v11.0 (2026-02-20)
+
 - **OpenCode alignment audit:** 5 critical fixes for native agent system compatibility
 - `agent_type` → `subagent_type` — matches OpenCode's Task tool parameter name
 - Removed per-call `model` param — model lives on agent config, not per-dispatch
@@ -1285,11 +1400,13 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - First successful live swarm run with proper orchestrator → task() → worker pipeline
 
 ### v10.0 (2026-02-20)
+
 - **Unleashed tier:** 32 parallel workstreams — maximum throughput mode
 - Auto-selects on keywords: "unleashed", "make it hurt", "no restraints", "pain"
 - Same phase structure as blitz but with 8× the parallelism
 
 ### v9.0 (2026-02-20)
+
 - **Subprocess mode:** True OS-level parallelism via `opencode run` background processes
 - `swarm_init` accepts `executionMode="subprocess"` — spawns independent terminals
 - `swarm_collect` aggregates outputs from subprocess files
@@ -1301,6 +1418,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - **Swarm agent updated:** `bash` tool enabled for subprocess spawning only
 
 ### v8.0 (2026-02-20)
+
 - **Provider-based dynamic routing:** Workers route by provider, not model name
 - New worker agents: `worker-anthropic`, `worker-openai`, `worker-gemini`, `worker-haiku`
 - Models auto-route — no config changes when new models are added/retired
@@ -1308,12 +1426,14 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - Included in `swarm_gate` and `swarm_status` responses
 
 ### v7.0 (2026-02-20)
+
 - **OpenCode migration:** Moved from Copilot CLI to OpenCode for per-agent tool enforcement
 - Swarm agent physically cannot write files (enforced, not just instructed)
 - `swarm.md` agent config with explicit tool permissions
 - GitHub Copilot provider integration via device auth flow
 
 ### v6.0 (2026-02-19)
+
 - **MCP Server:** Converted from prose-based skill to enforced MCP tool calls
 - Server-side model diversity, phase ordering, merge enforcement, quality gates
 - 8 tools: `swarm_init`, `swarm_next`, `swarm_submit`, `swarm_merge`, `swarm_status`, `swarm_gate`, `swarm_collect`, `swarm_models`
@@ -1321,18 +1441,21 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - Deployed via ToolHive (`thv run`)
 
 ### v5.2 (2026-02-19)
+
 - Programmatic state machine with SQL enforcement
 - Auto pre-flight (fleet/plan mode prompts)
 - STOP-AND-CHECK gates, anti-pattern callouts
 - Phase continuation enforcement
 
 ### v5.1 (2026-02-19)
+
 - **Merge Protocol:** Formal synthesis step after every parallel fan-out phase (inspired by Agent Framework's ConcurrentBuilder)
 - Lightweight haiku merge agent deduplicates findings, preserves unique insights, flags contradictions
 - Applied to all parallel phases across Full Swarm and Blitz tiers
 - Replaces ad-hoc "collect and concatenate" with structured anonymous documents
 
 ### v5.0 (2026-02-19)
+
 - **Blitz tier:** Maximum throughput mode for massive codebases (10+ agents, 50+ files)
 - **Cross-communication (Rule 4):** Parallel coders see other workstreams, critics check integration
 - **Mandatory review:** Review loop can no longer be skipped — enforced as MANDATORY GATE
@@ -1342,6 +1465,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - **Richer history format:** History includes cross-workstream observations and conflicts
 
 ### v4.0 (2026-02-19)
+
 - **Custom agents:** Uses `architect`, `clean-code`, `code-review`, `debugger` instead of generic prompts
 - **Fleet mode:** Pre-flight `/fleet` for parallel subagent execution
 - **Plan mode:** `/plan` recommended for Full Swarm and Debate tiers
@@ -1351,15 +1475,18 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 - **Trimmed:** Removed redundant prompt templates (custom agents have built-in prompts)
 
 ### v3.0 (2026-02-19)
+
 - Rewrote for CLI operability: 733→232 lines (68% reduction)
 - Fixed task tool syntax, parallel safety rules, SQL persistence model
 - Moved execution checklists to top of file
 
 ### v2.0 (2026-02-19)
+
 - Paper-alignment audit: 9 improvements from ablation experiments
 - Added co-player inference, anonymous history, quality scoring, dual timescale
 
 ### v1.0 (2026-02-19)
+
 - Initial release with 6 agent archetypes and 3 orchestration modes
 
 ---
@@ -1372,7 +1499,7 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 
 <div align="center">
 
-*Built with 🐝 by [Tim Schwarz](https://github.com/schwarztim) and [GitHub Copilot](https://github.com/features/copilot)*
+_Built with 🐝 by [Tim Schwarz](https://github.com/schwarztim) and [GitHub Copilot](https://github.com/features/copilot)_
 
 **Cooperation isn't programmed. It emerges.**
 
