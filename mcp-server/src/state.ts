@@ -1,42 +1,57 @@
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type Tier = 'duo' | 'trio' | 'full-swarm' | 'blitz' | 'debate' | 'unleashed';
-export type ExecutionMode = 'task' | 'subprocess';
-export type RatePreset = 'conservative' | 'standard' | 'aggressive' | 'max' | 'unlimited';
+export type Tier =
+  | "duo"
+  | "trio"
+  | "full-swarm"
+  | "blitz"
+  | "debate"
+  | "unleashed";
+export type ExecutionMode = "task" | "subprocess";
+export type RatePreset =
+  | "conservative"
+  | "standard"
+  | "aggressive"
+  | "max"
+  | "unlimited";
 
 // ── L3 Worker Specialization Types ────────────────────────────────────
 // Workers have ROLES (domain) AND PROVIDERS (model), creating a 2D matrix.
 // Role defines WHAT they do, provider defines HOW they think.
 
 export type WorkerRole =
-  | 'coder'       // Feature implementation, clean code
-  | 'tester'      // Unit/integration tests, coverage
-  | 'reviewer'    // Code review, quality checks
-  | 'security'    // Security audit, vulnerability scanning
-  | 'architect'   // System design, API contracts
-  | 'documenter'  // README, API docs, inline comments
-  | 'debugger'    // Root cause analysis, bug reproduction
-  | 'devops'      // CI/CD, deployment, infrastructure
-  | 'meta-worker'; // Self-build: can modify open-swarm itself
+  | "coder" // Feature implementation, clean code
+  | "tester" // Unit/integration tests, coverage
+  | "reviewer" // Code review, quality checks
+  | "security" // Security audit, vulnerability scanning
+  | "architect" // System design, API contracts
+  | "documenter" // README, API docs, inline comments
+  | "debugger" // Root cause analysis, bug reproduction
+  | "devops" // CI/CD, deployment, infrastructure
+  | "meta-worker"; // Self-build: can modify open-swarm itself
 
-export type TaskComplexity = 'trivial' | 'standard' | 'complex' | 'review';
+export type TaskComplexity = "trivial" | "standard" | "complex" | "review";
 
-export type WorkerMode = 'implement' | 'propose'; // propose = consensus mode
+export type WorkerMode = "implement" | "propose"; // propose = consensus mode
 
 // ── File Claims & Anti-Drift Types ────────────────────────────────────
 // File ownership system prevents conflicts between workers.
 
 export interface FileClaim {
   path: string;
-  claimedBy: string;     // workstream ID
-  groupId: string;        // agent group
+  claimedBy: string; // workstream ID
+  groupId: string; // agent group
   claimedAt: number;
   released: boolean;
 }
 
 export interface DriftCheck {
-  taskGoal: string;       // Original assignment
-  outputSummary: string;  // What the worker produced
+  taskGoal: string; // Original assignment
+  outputSummary: string; // What the worker produced
   alignmentScore: number; // 0-1: how well output matches goal
   driftSignals: string[]; // What went off-track
 }
@@ -46,14 +61,14 @@ export interface DriftCheck {
 
 export interface PatternEntry {
   id: string;
-  taskType: string;        // e.g., "auth-implementation", "api-endpoint"
-  approach: string;        // What approach was used
+  taskType: string; // e.g., "auth-implementation", "api-endpoint"
+  approach: string; // What approach was used
   filesInvolved: string[]; // Which files were touched
-  qualityScore: number;    // Score from quality gate (must be ≥8)
-  keyDecisions: string[];  // Important decisions made
-  tags: string[];          // Searchable tags
+  qualityScore: number; // Score from quality gate (must be ≥8)
+  keyDecisions: string[]; // Important decisions made
+  tags: string[]; // Searchable tags
   createdAt: number;
-  sessionId: string;       // Which session created this
+  sessionId: string; // Which session created this
 }
 
 // ── Worker Consensus Types ────────────────────────────────────────────
@@ -61,7 +76,7 @@ export interface PatternEntry {
 
 export interface ConsensusProposal {
   workstreamId: string;
-  slotId: string;          // "proposer-0", "proposer-1"
+  slotId: string; // "proposer-0", "proposer-1"
   model: string;
   content: string;
   score?: number;
@@ -76,7 +91,7 @@ export interface ConsensusState {
   proposals: ConsensusProposal[];
   convergenceScore?: number;
   selectedProposal?: string; // slotId of winner
-  status: 'collecting' | 'evaluating' | 'decided' | 'escalated';
+  status: "collecting" | "evaluating" | "decided" | "escalated";
   createdAt: number;
   resolvedAt?: number;
 }
@@ -87,119 +102,119 @@ export interface ConsensusState {
 // Ref: arXiv:2602.16301 §3.2 (mutual shaping through anonymous interaction)
 
 export type DebatePhase =
-  | 'position'      // Workers take initial positions (parallel)
-  | 'critique'      // Workers cross-critique each other (parallel)
-  | 'rebuttal'      // Workers defend/revise positions (parallel)
-  | 'evaluation'    // Manager evaluates convergence
-  | 'synthesis'     // Manager synthesizes final position
-  | 'escalation';   // Escalate to L1 (stalled or divergent)
+  | "position" // Workers take initial positions (parallel)
+  | "critique" // Workers cross-critique each other (parallel)
+  | "rebuttal" // Workers defend/revise positions (parallel)
+  | "evaluation" // Manager evaluates convergence
+  | "synthesis" // Manager synthesizes final position
+  | "escalation"; // Escalate to L1 (stalled or divergent)
 
 export type DebateStatus =
-  | 'pending'       // Debate created, not started
-  | 'active'        // Currently in a round
-  | 'converged'     // Positions converged, synthesis available
-  | 'stalled'       // No progress across rounds
-  | 'escalated'     // Escalated to parent level
-  | 'resolved';     // Final synthesis accepted
+  | "pending" // Debate created, not started
+  | "active" // Currently in a round
+  | "converged" // Positions converged, synthesis available
+  | "stalled" // No progress across rounds
+  | "escalated" // Escalated to parent level
+  | "resolved"; // Final synthesis accepted
 
 export type DebateTrigger =
-  | 'explicit'      // Workstream explicitly calls for debate
-  | 'disagreement'  // Manager detected conflicting worker outputs
-  | 'quality-split' // Quality scores diverged significantly
-  | 'l1-directive'; // L1 orchestrator directed a debate
+  | "explicit" // Workstream explicitly calls for debate
+  | "disagreement" // Manager detected conflicting worker outputs
+  | "quality-split" // Quality scores diverged significantly
+  | "l1-directive"; // L1 orchestrator directed a debate
 
 export interface DebateContribution {
-  slotId: string;                // Anonymous: "debater-0", "debater-1", etc.
-  agentType: string;             // Actual agent type (hidden from other debaters)
-  model: string;                 // Actual model (hidden from other debaters)
-  phase: DebatePhase;            // Which phase this contribution belongs to
-  content: string;               // The position/critique/rebuttal text
+  slotId: string; // Anonymous: "debater-0", "debater-1", etc.
+  agentType: string; // Actual agent type (hidden from other debaters)
+  model: string; // Actual model (hidden from other debaters)
+  phase: DebatePhase; // Which phase this contribution belongs to
+  content: string; // The position/critique/rebuttal text
   timestamp: number;
-  score?: DebatePositionScore;   // Scored by the evaluator after submission
+  score?: DebatePositionScore; // Scored by the evaluator after submission
 }
 
 export interface DebateClaim {
-  id: string;                        // "claim-0", "claim-1", etc.
-  text: string;                      // The claim statement
-  sourceSlot: string;                // Which debater originated it
-  agreeSlots: string[];              // Debaters who agree
-  disagreeSlots: string[];           // Debaters who disagree
-  status: 'agreed' | 'contested' | 'undecided';
-  round: number;                     // Round when first extracted
+  id: string; // "claim-0", "claim-1", etc.
+  text: string; // The claim statement
+  sourceSlot: string; // Which debater originated it
+  agreeSlots: string[]; // Debaters who agree
+  disagreeSlots: string[]; // Debaters who disagree
+  status: "agreed" | "contested" | "undecided";
+  round: number; // Round when first extracted
 }
 
 export interface ValidationCheckpoint {
   debateId: string;
-  synthesis: string;                 // The decision that was implemented
+  synthesis: string; // The decision that was implemented
   submittedAt: number;
   validatedAt?: number;
-  outcome: 'pending' | 'confirmed' | 'failed' | 'partial';
-  findings: string[];               // What was discovered post-implementation
-  reopenedDebateId?: string;         // If validation failed, the new debate
+  outcome: "pending" | "confirmed" | "failed" | "partial";
+  findings: string[]; // What was discovered post-implementation
+  reopenedDebateId?: string; // If validation failed, the new debate
 }
 
 export interface DebateRound {
   roundNumber: number;
-  phase: DebatePhase;            // Current phase within this round
+  phase: DebatePhase; // Current phase within this round
   contributions: DebateContribution[];
   evaluation?: DebateEvaluation;
-  claims?: DebateClaim[];        // Per-claim consensus tracking
+  claims?: DebateClaim[]; // Per-claim consensus tracking
   startedAt: number;
   completedAt?: number;
 }
 
 export interface DebatePositionScore {
-  evidenceQuality: number;       // 0-3: unsupported → well-evidenced
-  reasoningClarity: number;      // 0-3: confused → crystal clear
+  evidenceQuality: number; // 0-3: unsupported → well-evidenced
+  reasoningClarity: number; // 0-3: confused → crystal clear
   rebuttalEffectiveness: number; // 0-3: ignored critiques → addressed all
-  novelContribution: number;     // 0-2: nothing new → breakthrough insight
-  total: number;                 // 0-11 sum
+  novelContribution: number; // 0-2: nothing new → breakthrough insight
+  total: number; // 0-11 sum
   summary: string;
 }
 
 export interface DebateEvaluation {
-  convergenceScore: number;          // 0-1: how close positions are to agreement
-  convergenceDelta: number;          // Change from previous round (-1 to +1)
-  sycophancyScore: number;           // 0-1: how much positions just agree without substance
+  convergenceScore: number; // 0-1: how close positions are to agreement
+  convergenceDelta: number; // Change from previous round (-1 to +1)
+  sycophancyScore: number; // 0-1: how much positions just agree without substance
   positionScores: DebatePositionScore[];
-  dominantPosition?: string;         // slotId with strongest position, if clear
-  recommendation: 'continue' | 'converged' | 'stalled' | 'escalate';
-  reasoning: string;                 // Why this recommendation
-  synthesisReady: boolean;           // Can we synthesize now?
+  dominantPosition?: string; // slotId with strongest position, if clear
+  recommendation: "continue" | "converged" | "stalled" | "escalate";
+  reasoning: string; // Why this recommendation
+  synthesisReady: boolean; // Can we synthesize now?
 }
 
 export interface DebateParticipant {
-  slotId: string;                    // "debater-0", "debater-1"
-  workstreamId?: string;             // Original workstream, if applicable
-  agentType: string;                 // Real agent type (not exposed to others)
-  model: string;                     // Real model (not exposed to others)
+  slotId: string; // "debater-0", "debater-1"
+  workstreamId?: string; // Original workstream, if applicable
+  agentType: string; // Real agent type (not exposed to others)
+  model: string; // Real model (not exposed to others)
 }
 
 export interface DebateState {
-  id: string;                        // "debate-<counter>"
-  sessionId: string;                 // Parent swarm session
-  groupId?: string;                  // If L2-level, which agent group owns this
-  topic: string;                     // What is being debated
-  trigger: DebateTrigger;            // Why the debate was initiated
-  initiatorLevel: 'L1' | 'L2';      // Who started it
+  id: string; // "debate-<counter>"
+  sessionId: string; // Parent swarm session
+  groupId?: string; // If L2-level, which agent group owns this
+  topic: string; // What is being debated
+  trigger: DebateTrigger; // Why the debate was initiated
+  initiatorLevel: "L1" | "L2"; // Who started it
   status: DebateStatus;
 
   participants: DebateParticipant[];
 
   rounds: DebateRound[];
   currentRound: number;
-  maxRounds: number;                 // Default: 3, configurable
+  maxRounds: number; // Default: 3, configurable
 
-  convergenceThreshold: number;      // 0-1, default 0.7
-  sycophancyThreshold: number;       // 0-1, above this = sycophancy detected (default 0.85)
-  minPositionScore: number;          // Minimum acceptable position score (default 6/11)
+  convergenceThreshold: number; // 0-1, default 0.7
+  sycophancyThreshold: number; // 0-1, above this = sycophancy detected (default 0.85)
+  minPositionScore: number; // Minimum acceptable position score (default 6/11)
 
-  fastTrack: boolean;                // Skip critique/rebuttal if Round 1 convergence ≥ threshold
-  contrarian?: string;               // slotId assigned as devil's advocate (auto-set when early consensus)
-  claims: DebateClaim[];             // Per-claim consensus tracking across rounds
+  fastTrack: boolean; // Skip critique/rebuttal if Round 1 convergence ≥ threshold
+  contrarian?: string; // slotId assigned as devil's advocate (auto-set when early consensus)
+  claims: DebateClaim[]; // Per-claim consensus tracking across rounds
 
-  synthesis?: string;                // Final synthesized position
-  escalationContext?: string;        // Context passed to parent level on escalation
+  synthesis?: string; // Final synthesized position
+  escalationContext?: string; // Context passed to parent level on escalation
   validation?: ValidationCheckpoint; // Post-implementation validation
 
   createdAt: number;
@@ -222,48 +237,54 @@ export interface DebateState {
 //   GPT-5.x-Codex = 1x, GPT-4.1 = free on paid plans
 
 export interface RateConfig {
-  concurrency: number;    // max simultaneous L2 managers
-  maxAgents: number;      // approx total agents (managers + workers)
+  concurrency: number; // max simultaneous L2 managers
+  maxAgents: number; // approx total agents (managers + workers)
   description: string;
-  plan: string;           // recommended Copilot plan
+  plan: string; // recommended Copilot plan
 }
 
 export const RATE_PRESETS: Record<RatePreset, RateConfig> = {
   conservative: {
     concurrency: 2,
     maxAgents: 10,
-    description: 'Safe for any Copilot plan. 2 L2 managers at a time (~10 total agents).',
-    plan: 'Any (Free, Pro, Business, Enterprise)',
+    description:
+      "Safe for any Copilot plan. 2 L2 managers at a time (~10 total agents).",
+    plan: "Any (Free, Pro, Business, Enterprise)",
   },
   standard: {
     concurrency: 3,
     maxAgents: 15,
-    description: '3 L2 managers at a time (~15 agents). Good balance of speed and stability.',
-    plan: 'Business or Enterprise',
+    description:
+      "3 L2 managers at a time (~15 agents). Good balance of speed and stability.",
+    plan: "Business or Enterprise",
   },
   aggressive: {
     concurrency: 4,
     maxAgents: 20,
-    description: '4 L2 managers at a time (~20 agents). Provider diversity reduces per-provider load.',
-    plan: 'Enterprise (8 concurrent per tier)',
+    description:
+      "4 L2 managers at a time (~20 agents). Provider diversity reduces per-provider load.",
+    plan: "Enterprise (8 concurrent per tier)",
   },
   max: {
     concurrency: 8,
     maxAgents: 40,
-    description: '8 L2 managers at a time (~40 agents). Maximum throughput. May hit rate limits on busy days.',
-    plan: 'Enterprise with headroom',
+    description:
+      "8 L2 managers at a time (~40 agents). Maximum throughput. May hit rate limits on busy days.",
+    plan: "Enterprise with headroom",
   },
   unlimited: {
     concurrency: 0,
     maxAgents: Infinity,
-    description: 'No limit. All managers dispatch at once. Use at your own risk.',
-    plan: 'N/A — risk of rate limit errors',
+    description:
+      "No limit. All managers dispatch at once. Use at your own risk.",
+    plan: "N/A — risk of rate limit errors",
   },
 };
 
 export function resolveRateLimit(input?: number | RatePreset): number {
-  if (input === undefined || input === null) return RATE_PRESETS.standard.concurrency;
-  if (typeof input === 'number') return input;
+  if (input === undefined || input === null)
+    return RATE_PRESETS.standard.concurrency;
+  if (typeof input === "number") return input;
   const preset = RATE_PRESETS[input];
   return preset ? preset.concurrency : RATE_PRESETS.standard.concurrency;
 }
@@ -272,7 +293,7 @@ export interface PhaseDefinition {
   name: string;
   agentType: string;
   model: string;
-  mode: 'sync' | 'background';
+  mode: "sync" | "background";
   parallel: boolean;
   requiresMerge: boolean;
   isGate: boolean;
@@ -280,7 +301,7 @@ export interface PhaseDefinition {
 
 export interface PhaseState {
   name: string;
-  status: 'pending' | 'in_progress' | 'done' | 'skipped';
+  status: "pending" | "in_progress" | "done" | "skipped";
   agentIds: string[];
   outputs: string[];
 }
@@ -296,18 +317,26 @@ export interface Workstream {
   outputFile?: string;
   sessionUuid?: string;
   dependencies: string[]; // workstream IDs that must complete before this one
-  status: 'pending' | 'ready' | 'in_progress' | 'done' | 'blocked';
+  status: "pending" | "ready" | "in_progress" | "done" | "blocked";
 }
 
 export type BoardMessageType =
-  | 'finding' | 'blocker' | 'decision' | 'status' | 'plan' | 'report'
-  | 'debate-position' | 'debate-critique' | 'debate-rebuttal'
-  | 'debate-synthesis' | 'debate-escalation';
+  | "finding"
+  | "blocker"
+  | "decision"
+  | "status"
+  | "plan"
+  | "report"
+  | "debate-position"
+  | "debate-critique"
+  | "debate-rebuttal"
+  | "debate-synthesis"
+  | "debate-escalation";
 
 export interface BoardMessage {
   workstream: string; // who posted it
   type: BoardMessageType;
-  level: 'L1' | 'L2' | 'L3'; // hierarchy level of the sender
+  level: "L1" | "L2" | "L3"; // hierarchy level of the sender
   group?: string; // agent group ID (L2 manager name)
   debateId?: string; // Links message to a specific debate (NEW)
   content: string;
@@ -320,23 +349,23 @@ export interface BoardMessage {
 // L3 = Workers (spawned by L2, do actual work, report to their L2 manager)
 
 export interface AgentGroup {
-  id: string;          // e.g., "group-0", "group-1"
+  id: string; // e.g., "group-0", "group-1"
   managerAgent: string; // L2 agent type (e.g., "manager-anthropic")
   managerModel: string; // model assigned to the L2 manager
   workerSlots: WorkerSlot[]; // L3 worker assignments
-  plan: string;        // L2 manager's plan (submitted during execution)
-  status: 'pending' | 'dispatched' | 'reporting' | 'done';
-  report?: string;     // L2's final synthesized report to L1
+  plan: string; // L2 manager's plan (submitted during execution)
+  status: "pending" | "dispatched" | "reporting" | "done";
+  report?: string; // L2's final synthesized report to L1
 }
 
 export interface WorkerSlot {
   workstreamId: string; // which workstream this worker handles
-  agentType: string;    // e.g., "worker-openai"
-  model: string;        // model for this worker
-  description: string;  // what this worker should do
-  files: string[];      // files assigned
-  role: WorkerRole;     // domain specialization (coder, tester, etc.)
-  mode: WorkerMode;     // implement (default) or propose (consensus mode)
+  agentType: string; // e.g., "worker-openai"
+  model: string; // model for this worker
+  description: string; // what this worker should do
+  files: string[]; // files assigned
+  role: WorkerRole; // domain specialization (coder, tester, etc.)
+  mode: WorkerMode; // implement (default) or propose (consensus mode)
   complexity?: TaskComplexity; // task complexity classification
 }
 
@@ -366,7 +395,7 @@ export interface SwarmSession {
   rounds: RoundRecord[];
   board: BoardMessage[]; // programmatic message board
   debates: DebateState[]; // Active and completed debates
-  claims: FileClaim[];    // File ownership claims
+  claims: FileClaim[]; // File ownership claims
   patterns: PatternEntry[]; // Pattern memory store
   consensuses: ConsensusState[]; // Worker consensus sessions
   promptStore: Map<string, string>; // server-side prompt storage to avoid LLM output truncation
@@ -382,29 +411,29 @@ export interface SwarmSession {
 // Model tiers: premium (architect/synthesizer), standard (coders/critics), fast (explorers/merge)
 interface ModelEntry {
   id: string;
-  tier: 'premium' | 'standard' | 'fast';
+  tier: "premium" | "standard" | "fast";
   provider: string; // 'anthropic' | 'openai' | 'google'
 }
 
 // All known models — add new ones here and they auto-distribute
 const ALL_MODELS: ModelEntry[] = [
   // Premium — deep reasoning, architecture, synthesis
-  { id: 'claude-opus-4.6',       tier: 'premium',  provider: 'anthropic' },
-  { id: 'claude-opus-4.5',       tier: 'premium',  provider: 'anthropic' },
-  { id: 'gpt-5.1-codex-max',     tier: 'premium',  provider: 'openai' },
+  { id: "claude-opus-4.6", tier: "premium", provider: "anthropic" },
+  { id: "claude-opus-4.5", tier: "premium", provider: "anthropic" },
+  { id: "gpt-5.1-codex-max", tier: "premium", provider: "openai" },
   // Standard — coding, reviewing, general work
-  { id: 'claude-sonnet-4.6',     tier: 'standard', provider: 'anthropic' },
-  { id: 'claude-sonnet-4.5',     tier: 'standard', provider: 'anthropic' },
-  { id: 'claude-sonnet-4',       tier: 'standard', provider: 'anthropic' },
-  { id: 'gpt-5.2-codex',         tier: 'standard', provider: 'openai' },
-  { id: 'gpt-5.1-codex',         tier: 'standard', provider: 'openai' },
-  { id: 'gpt-5.2',               tier: 'standard', provider: 'openai' },
-  { id: 'gpt-5.1',               tier: 'standard', provider: 'openai' },
-  { id: 'gemini-3-pro-preview',  tier: 'standard', provider: 'google' },
+  { id: "claude-sonnet-4.6", tier: "standard", provider: "anthropic" },
+  { id: "claude-sonnet-4.5", tier: "standard", provider: "anthropic" },
+  { id: "claude-sonnet-4", tier: "standard", provider: "anthropic" },
+  { id: "gpt-5.2-codex", tier: "standard", provider: "openai" },
+  { id: "gpt-5.1-codex", tier: "standard", provider: "openai" },
+  { id: "gpt-5.2", tier: "standard", provider: "openai" },
+  { id: "gpt-5.1", tier: "standard", provider: "openai" },
+  { id: "gemini-3-pro-preview", tier: "standard", provider: "google" },
   // Fast — explorers, merges, cheap parallel work
-  { id: 'claude-haiku-4.5',      tier: 'fast',     provider: 'anthropic' },
-  { id: 'gpt-4.1',               tier: 'fast',     provider: 'openai' },
-  { id: 'gpt-5.1-codex-mini',    tier: 'fast',     provider: 'openai' },
+  { id: "claude-haiku-4.5", tier: "fast", provider: "anthropic" },
+  { id: "gpt-4.1", tier: "fast", provider: "openai" },
+  { id: "gpt-5.1-codex-mini", tier: "fast", provider: "openai" },
 ];
 
 // ── Model Fallback System ─────────────────────────────────────────────
@@ -414,25 +443,89 @@ const ALL_MODELS: ModelEntry[] = [
 // Explicit fallback chains — first match wins
 const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
   // Anthropic premium
-  'claude-opus-4.6':     ['claude-opus-4.5', 'claude-sonnet-4.6', 'claude-sonnet-4.5', 'gpt-5.1-codex-max', 'gpt-5.3-codex'],
-  'claude-opus-4.5':     ['claude-opus-4.6', 'claude-sonnet-4.5', 'claude-sonnet-4.6', 'gpt-5.1-codex-max', 'gpt-5.3-codex'],
+  "claude-opus-4.6": [
+    "claude-opus-4.5",
+    "claude-sonnet-4.6",
+    "claude-sonnet-4.5",
+    "gpt-5.1-codex-max",
+    "gpt-5.3-codex",
+  ],
+  "claude-opus-4.5": [
+    "claude-opus-4.6",
+    "claude-sonnet-4.5",
+    "claude-sonnet-4.6",
+    "gpt-5.1-codex-max",
+    "gpt-5.3-codex",
+  ],
   // Anthropic standard
-  'claude-sonnet-4.6':   ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5.3-codex', 'gpt-5.2-codex'],
-  'claude-sonnet-4.5':   ['claude-sonnet-4.6', 'claude-sonnet-4', 'gpt-5.3-codex', 'gpt-5.2-codex'],
-  'claude-sonnet-4':     ['claude-sonnet-4.5', 'claude-sonnet-4.6', 'gpt-5.2-codex', 'gpt-5.1-codex'],
+  "claude-sonnet-4.6": [
+    "claude-sonnet-4.5",
+    "claude-sonnet-4",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+  ],
+  "claude-sonnet-4.5": [
+    "claude-sonnet-4.6",
+    "claude-sonnet-4",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+  ],
+  "claude-sonnet-4": [
+    "claude-sonnet-4.5",
+    "claude-sonnet-4.6",
+    "gpt-5.2-codex",
+    "gpt-5.1-codex",
+  ],
   // OpenAI premium
-  'gpt-5.1-codex-max':   ['gpt-5.3-codex', 'gpt-5.2-codex', 'claude-opus-4.6', 'claude-opus-4.5'],
+  "gpt-5.1-codex-max": [
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+    "claude-opus-4.6",
+    "claude-opus-4.5",
+  ],
   // OpenAI standard
-  'gpt-5.2-codex':       ['gpt-5.1-codex', 'gpt-5.2', 'gpt-5.1', 'claude-sonnet-4.5', 'claude-sonnet-4'],
-  'gpt-5.1-codex':       ['gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.1', 'claude-sonnet-4', 'claude-sonnet-4.5'],
-  'gpt-5.2':             ['gpt-5.1', 'gpt-5.2-codex', 'gpt-5.1-codex', 'claude-sonnet-4.5'],
-  'gpt-5.1':             ['gpt-5.2', 'gpt-5.1-codex', 'gpt-5.2-codex', 'claude-sonnet-4'],
+  "gpt-5.2-codex": [
+    "gpt-5.1-codex",
+    "gpt-5.2",
+    "gpt-5.1",
+    "claude-sonnet-4.5",
+    "claude-sonnet-4",
+  ],
+  "gpt-5.1-codex": [
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+    "gpt-5.1",
+    "claude-sonnet-4",
+    "claude-sonnet-4.5",
+  ],
+  "gpt-5.2": ["gpt-5.1", "gpt-5.2-codex", "gpt-5.1-codex", "claude-sonnet-4.5"],
+  "gpt-5.1": ["gpt-5.2", "gpt-5.1-codex", "gpt-5.2-codex", "claude-sonnet-4"],
   // Google
-  'gemini-3-pro-preview': ['claude-sonnet-4.5', 'gpt-5.2-codex', 'claude-sonnet-4.6', 'gpt-5.3-codex'],
+  "gemini-3-pro-preview": [
+    "claude-sonnet-4.5",
+    "gpt-5.2-codex",
+    "claude-sonnet-4.6",
+    "gpt-5.3-codex",
+  ],
   // Fast
-  'claude-haiku-4.5':    ['gpt-4.1', 'gpt-5.1-codex-mini', 'claude-sonnet-4', 'gpt-5.1'],
-  'gpt-4.1':             ['gpt-5.1-codex-mini', 'claude-haiku-4.5', 'gpt-5.1', 'claude-sonnet-4'],
-  'gpt-5.1-codex-mini':  ['gpt-4.1', 'claude-haiku-4.5', 'gpt-5.1', 'claude-sonnet-4'],
+  "claude-haiku-4.5": [
+    "gpt-4.1",
+    "gpt-5.1-codex-mini",
+    "claude-sonnet-4",
+    "gpt-5.1",
+  ],
+  "gpt-4.1": [
+    "gpt-5.1-codex-mini",
+    "claude-haiku-4.5",
+    "gpt-5.1",
+    "claude-sonnet-4",
+  ],
+  "gpt-5.1-codex-mini": [
+    "gpt-4.1",
+    "claude-haiku-4.5",
+    "gpt-5.1",
+    "claude-sonnet-4",
+  ],
 };
 
 /**
@@ -441,18 +534,21 @@ const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
  */
 export function resolveModel(requestedModel: string): string {
   // If available, use it directly
-  if (availableModels.find((m) => m.id === requestedModel)) return requestedModel;
+  if (availableModels.find((m) => m.id === requestedModel))
+    return requestedModel;
 
   const requested = ALL_MODELS.find((m) => m.id === requestedModel);
-  const requestedTier = requested?.tier ?? 'standard';
-  const requestedProvider = requested?.provider ?? 'unknown';
+  const requestedTier = requested?.tier ?? "standard";
+  const requestedProvider = requested?.provider ?? "unknown";
 
   // 1. Walk explicit fallback chain
   const chain = MODEL_FALLBACK_CHAINS[requestedModel];
   if (chain) {
     for (const fallback of chain) {
       if (availableModels.find((m) => m.id === fallback)) {
-        console.error(`[model-fallback] ${requestedModel} → ${fallback} (explicit chain)`);
+        console.error(
+          `[model-fallback] ${requestedModel} → ${fallback} (explicit chain)`,
+        );
         return fallback;
       }
     }
@@ -460,40 +556,61 @@ export function resolveModel(requestedModel: string): string {
 
   // 2. Same tier + same provider
   const sameTierProvider = availableModels.find(
-    (m) => m.tier === requestedTier && m.provider === requestedProvider
+    (m) => m.tier === requestedTier && m.provider === requestedProvider,
   );
   if (sameTierProvider) {
-    console.error(`[model-fallback] ${requestedModel} → ${sameTierProvider.id} (same tier+provider)`);
+    console.error(
+      `[model-fallback] ${requestedModel} → ${sameTierProvider.id} (same tier+provider)`,
+    );
     return sameTierProvider.id;
   }
 
   // 3. Same tier, any provider
   const sameTier = availableModels.find((m) => m.tier === requestedTier);
   if (sameTier) {
-    console.error(`[model-fallback] ${requestedModel} → ${sameTier.id} (same tier)`);
+    console.error(
+      `[model-fallback] ${requestedModel} → ${sameTier.id} (same tier)`,
+    );
     return sameTier.id;
   }
 
   // 4. Anything available
   if (availableModels.length > 0) {
     const fallback = availableModels[0].id;
-    console.error(`[model-fallback] ${requestedModel} → ${fallback} (last resort)`);
+    console.error(
+      `[model-fallback] ${requestedModel} → ${fallback} (last resort)`,
+    );
     return fallback;
   }
 
   // Nothing available — return original and let it fail loud
-  console.error(`[model-fallback] ${requestedModel} — NO fallbacks available, returning as-is`);
+  console.error(
+    `[model-fallback] ${requestedModel} — NO fallbacks available, returning as-is`,
+  );
   return requestedModel;
 }
 
 // Track fallback events for diagnostics
-const fallbackLog: Array<{ from: string; to: string; reason: string; ts: Date }> = [];
+const fallbackLog: Array<{
+  from: string;
+  to: string;
+  reason: string;
+  ts: Date;
+}> = [];
 
-export function resolveModelTracked(requestedModel: string): { model: string; wasFallback: boolean } {
+export function resolveModelTracked(requestedModel: string): {
+  model: string;
+  wasFallback: boolean;
+} {
   const resolved = resolveModel(requestedModel);
   const wasFallback = resolved !== requestedModel;
   if (wasFallback) {
-    fallbackLog.push({ from: requestedModel, to: resolved, reason: 'not_available', ts: new Date() });
+    fallbackLog.push({
+      from: requestedModel,
+      to: resolved,
+      reason: "not_available",
+      ts: new Date(),
+    });
   }
   return { model: resolved, wasFallback };
 }
@@ -522,9 +639,9 @@ let criticPool: string[] = [];
 let fastPool: string[] = [];
 
 function rebuildPools(): void {
-  const premium = availableModels.filter((m) => m.tier === 'premium');
-  const standard = availableModels.filter((m) => m.tier === 'standard');
-  const fast = availableModels.filter((m) => m.tier === 'fast');
+  const premium = availableModels.filter((m) => m.tier === "premium");
+  const standard = availableModels.filter((m) => m.tier === "standard");
+  const fast = availableModels.filter((m) => m.tier === "fast");
 
   premiumPool = premium.map((m) => m.id);
   fastPool = fast.map((m) => m.id);
@@ -546,15 +663,17 @@ function rebuildPools(): void {
   }
 
   // Critics: standard models from different providers than the default coder
-  criticPool = standard.length > 1
-    ? standard.filter((_, i) => i % 2 === 1).map((m) => m.id)
-    : standard.map((m) => m.id);
+  criticPool =
+    standard.length > 1
+      ? standard.filter((_, i) => i % 2 === 1).map((m) => m.id)
+      : standard.map((m) => m.id);
 
   // Fallbacks if pools are empty
-  if (premiumPool.length === 0) premiumPool = coderPool.length > 0 ? [coderPool[0]] : ['claude-sonnet-4.6'];
-  if (coderPool.length === 0) coderPool = ['claude-sonnet-4.6'];
+  if (premiumPool.length === 0)
+    premiumPool = coderPool.length > 0 ? [coderPool[0]] : ["claude-sonnet-4.6"];
+  if (coderPool.length === 0) coderPool = ["claude-sonnet-4.6"];
   if (criticPool.length === 0) criticPool = coderPool.slice(0, 2);
-  if (fastPool.length === 0) fastPool = ['claude-haiku-4.5'];
+  if (fastPool.length === 0) fastPool = ["claude-haiku-4.5"];
 }
 
 // Initialize pools
@@ -589,7 +708,7 @@ export { premiumPool, coderPool, criticPool, fastPool };
 // Look up provider for a model ID
 export function getModelProvider(modelId: string): string {
   const entry = availableModels.find((m) => m.id === modelId);
-  return entry?.provider ?? 'unknown';
+  return entry?.provider ?? "unknown";
 }
 
 // ── Phase Definitions per Tier ─────────────────────────────────────────
@@ -598,7 +717,7 @@ function def(
   name: string,
   agentType: string,
   model: string,
-  mode: 'sync' | 'background',
+  mode: "sync" | "background",
   parallel: boolean,
   requiresMerge: boolean,
   isGate: boolean,
@@ -608,61 +727,301 @@ function def(
 
 export const TIER_PHASES: Record<Tier, PhaseDefinition[]> = {
   duo: [
-    def('implement', 'clean-code', getCoderModel(0), 'sync', false, false, false),
-    def('review', 'code-review', getCriticModel(0), 'sync', false, false, false),
-    def('gate', 'task', '', 'sync', false, false, true),
+    def(
+      "implement",
+      "clean-code",
+      getCoderModel(0),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "review",
+      "code-review",
+      getCriticModel(0),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def("gate", "task", "", "sync", false, false, true),
   ],
   trio: [
-    def('design', 'architect', getArchitectModel(), 'sync', false, false, false),
-    def('implement', 'clean-code', getCoderModel(0), 'sync', false, false, false),
-    def('review', 'code-review', getCriticModel(0), 'sync', false, false, false),
-    def('gate', 'task', '', 'sync', false, false, true),
-    def('validate', 'task', '', 'sync', false, false, false),
+    def(
+      "design",
+      "architect",
+      getArchitectModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "implement",
+      "clean-code",
+      getCoderModel(0),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "review",
+      "code-review",
+      getCriticModel(0),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def("gate", "task", "", "sync", false, false, true),
+    def("validate", "task", "", "sync", false, false, false),
   ],
-  'full-swarm': [
-    def('explore', 'explore', getFastModel(), 'background', true, true, false),
-    def('merge_explore', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('design', 'architect', getArchitectModel(), 'sync', false, false, false),
-    def('implement', 'clean-code', getCoderModel(0), 'background', true, true, false),
-    def('merge_impl', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('review', 'code-review', getCriticModel(0), 'background', true, false, false),
-    def('gate', 'task', '', 'sync', false, false, true),
-    def('integration', 'task', '', 'sync', false, false, false),
-    def('validate', 'task', '', 'sync', false, false, false),
-    def('synthesize', 'architect', getSynthesizerModel(), 'sync', false, false, false),
+  "full-swarm": [
+    def("explore", "explore", getFastModel(), "background", true, true, false),
+    def(
+      "merge_explore",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "design",
+      "architect",
+      getArchitectModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "implement",
+      "clean-code",
+      getCoderModel(0),
+      "background",
+      true,
+      true,
+      false,
+    ),
+    def(
+      "merge_impl",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "review",
+      "code-review",
+      getCriticModel(0),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    def("gate", "task", "", "sync", false, false, true),
+    def("integration", "task", "", "sync", false, false, false),
+    def("validate", "task", "", "sync", false, false, false),
+    def(
+      "synthesize",
+      "architect",
+      getSynthesizerModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
   ],
   blitz: [
-    def('recon', 'explore', getFastModel(), 'background', true, true, false),
-    def('merge_recon', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('triage', 'architect', getArchitectModel(), 'sync', false, false, false),
-    def('build', 'clean-code', getCoderModel(0), 'background', true, true, false),
-    def('merge_build', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('review', 'code-review', getCriticModel(0), 'background', true, true, false),
-    def('merge_review', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('gate', 'task', '', 'sync', false, false, true),
-    def('integration', 'task', '', 'sync', false, false, false),
-    def('validate', 'task', '', 'sync', false, false, false),
-    def('synthesize', 'architect', getSynthesizerModel(), 'sync', false, false, false),
+    def("recon", "explore", getFastModel(), "background", true, true, false),
+    def(
+      "merge_recon",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "triage",
+      "architect",
+      getArchitectModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "build",
+      "clean-code",
+      getCoderModel(0),
+      "background",
+      true,
+      true,
+      false,
+    ),
+    def(
+      "merge_build",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "review",
+      "code-review",
+      getCriticModel(0),
+      "background",
+      true,
+      true,
+      false,
+    ),
+    def(
+      "merge_review",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def("gate", "task", "", "sync", false, false, true),
+    def("integration", "task", "", "sync", false, false, false),
+    def("validate", "task", "", "sync", false, false, false),
+    def(
+      "synthesize",
+      "architect",
+      getSynthesizerModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
   ],
   debate: [
-    def('propose', 'architect', getArchitectModel(), 'background', true, false, false),
-    def('critique', 'code-review', getCriticModel(0), 'background', true, false, false),
-    def('rebuttal', 'architect', getArchitectModel(), 'background', true, false, false),
-    def('merge_debate', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('synthesize', 'architect', getSynthesizerModel(), 'sync', false, false, false),
+    def(
+      "propose",
+      "architect",
+      getArchitectModel(),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    def(
+      "critique",
+      "code-review",
+      getCriticModel(0),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    def(
+      "rebuttal",
+      "architect",
+      getArchitectModel(),
+      "background",
+      true,
+      false,
+      false,
+    ),
+    def(
+      "merge_debate",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "synthesize",
+      "architect",
+      getSynthesizerModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
   ],
   unleashed: [
-    def('recon', 'explore', getFastModel(), 'background', true, true, false),
-    def('merge_recon', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('triage', 'architect', getArchitectModel(), 'sync', false, false, false),
-    def('build', 'clean-code', getCoderModel(0), 'background', true, true, false),
-    def('merge_build', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('review', 'code-review', getCriticModel(0), 'background', true, true, false),
-    def('merge_review', 'general-purpose', getFastModel(), 'sync', false, false, false),
-    def('gate', 'task', '', 'sync', false, false, true),
-    def('integration', 'task', '', 'sync', false, false, false),
-    def('validate', 'task', '', 'sync', false, false, false),
-    def('synthesize', 'architect', getSynthesizerModel(), 'sync', false, false, false),
+    def("recon", "explore", getFastModel(), "background", true, true, false),
+    def(
+      "merge_recon",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "triage",
+      "architect",
+      getArchitectModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "build",
+      "clean-code",
+      getCoderModel(0),
+      "background",
+      true,
+      true,
+      false,
+    ),
+    def(
+      "merge_build",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def(
+      "review",
+      "code-review",
+      getCriticModel(0),
+      "background",
+      true,
+      true,
+      false,
+    ),
+    def(
+      "merge_review",
+      "general-purpose",
+      getFastModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
+    def("gate", "task", "", "sync", false, false, true),
+    def("integration", "task", "", "sync", false, false, false),
+    def("validate", "task", "", "sync", false, false, false),
+    def(
+      "synthesize",
+      "architect",
+      getSynthesizerModel(),
+      "sync",
+      false,
+      false,
+      false,
+    ),
   ],
 };
 
@@ -676,12 +1035,17 @@ function generateId(): string {
   return `swarm-${Date.now()}-${idCounter}`;
 }
 
-export function createSession(tier: Tier, task: string, executionMode: ExecutionMode = 'task', concurrency?: number | RatePreset): SwarmSession {
+export function createSession(
+  tier: Tier,
+  task: string,
+  executionMode: ExecutionMode = "task",
+  concurrency?: number | RatePreset,
+): SwarmSession {
   const id = generateId();
   const phaseDefs = TIER_PHASES[tier];
   const phases: PhaseState[] = phaseDefs.map((p) => ({
     name: p.name,
-    status: 'pending',
+    status: "pending",
     agentIds: [],
     outputs: [],
   }));
@@ -717,7 +1081,10 @@ export function getSession(id: string): SwarmSession | undefined {
   return sessions.get(id);
 }
 
-export function getPhaseDefinition(session: SwarmSession, phaseIndex?: number): PhaseDefinition {
+export function getPhaseDefinition(
+  session: SwarmSession,
+  phaseIndex?: number,
+): PhaseDefinition {
   const idx = phaseIndex ?? session.currentPhaseIndex;
   return TIER_PHASES[session.tier][idx];
 }
@@ -735,7 +1102,7 @@ export function advancePhase(sessionId: string): PhaseState {
   const currentDef = TIER_PHASES[session.tier][currentIndex];
 
   // Validate current phase is done
-  if (currentPhase.status !== 'done') {
+  if (currentPhase.status !== "done") {
     throw new Error(
       `Cannot advance: phase "${currentPhase.name}" is "${currentPhase.status}", expected "done".`,
     );
@@ -747,7 +1114,7 @@ export function advancePhase(sessionId: string): PhaseState {
     if (nextIndex < session.phases.length) {
       const nextPhase = session.phases[nextIndex];
       const nextDef = TIER_PHASES[session.tier][nextIndex];
-      if (nextDef.name.startsWith('merge_') && nextPhase.status !== 'done') {
+      if (nextDef.name.startsWith("merge_") && nextPhase.status !== "done") {
         throw new Error(
           `Cannot advance past "${currentPhase.name}": merge phase "${nextDef.name}" has not completed.`,
         );
@@ -763,7 +1130,7 @@ export function advancePhase(sessionId: string): PhaseState {
     if (failedWorkstreams.length > 0) {
       const details = failedWorkstreams
         .map((ws) => `${ws.id} (score: ${ws.score})`)
-        .join(', ');
+        .join(", ");
       throw new Error(
         `Gate failed: workstreams below threshold (≥7 required): ${details}`,
       );
@@ -773,7 +1140,7 @@ export function advancePhase(sessionId: string): PhaseState {
     );
     if (session.workstreams.length > 0 && unscoredWorkstreams.length > 0) {
       throw new Error(
-        `Gate incomplete: workstreams without scores: ${unscoredWorkstreams.map((ws) => ws.id).join(', ')}`,
+        `Gate incomplete: workstreams without scores: ${unscoredWorkstreams.map((ws) => ws.id).join(", ")}`,
       );
     }
   }
@@ -795,42 +1162,56 @@ export function advancePhase(sessionId: string): PhaseState {
 export function selectTier(taskDescription: string, fileCount?: number): Tier {
   const lower = taskDescription.toLowerCase();
 
-  if (fileCount !== undefined && fileCount > 50) return 'blitz';
-  if (/massive|full app|entire codebase/.test(lower)) return 'blitz';
+  if (fileCount !== undefined && fileCount > 50) return "blitz";
+  if (/massive|full app|entire codebase/.test(lower)) return "blitz";
 
-  if (/debate|decide|which approach|tradeoff/.test(lower)) return 'debate';
+  if (/debate|decide|which approach|tradeoff/.test(lower)) return "debate";
 
-  if (/unleashed|max|pedal to the metal|no restraints|hurt|pain|destroy/.test(lower)) return 'unleashed';
+  if (
+    /unleashed|max|pedal to the metal|no restraints|hurt|pain|destroy/.test(
+      lower,
+    )
+  )
+    return "unleashed";
 
-  if (/refactor|security|architecture|complex/.test(lower)) return 'full-swarm';
+  if (/refactor|security|architecture|complex/.test(lower)) return "full-swarm";
 
-  if (/design|multi-file|feature/.test(lower)) return 'trio';
+  if (/design|multi-file|feature/.test(lower)) return "trio";
 
-  return 'duo';
+  return "duo";
 }
 
 // ── Anonymous History Builder ──────────────────────────────────────────
 
-export function buildAnonymousHistory(session: SwarmSession, forWorkstream?: string): string {
+export function buildAnonymousHistory(
+  session: SwarmSession,
+  forWorkstream?: string,
+): string {
   const lines: string[] = [];
-  const currentRound = session.rounds.length > 0
-    ? Math.max(...session.rounds.map((r) => r.round))
-    : 0;
+  const currentRound =
+    session.rounds.length > 0
+      ? Math.max(...session.rounds.map((r) => r.round))
+      : 0;
 
-  lines.push(`=== SWARM CONTEXT (Tier: ${session.tier}, Round: ${currentRound}) ===`);
+  lines.push(
+    `=== SWARM CONTEXT (Tier: ${session.tier}, Round: ${currentRound}) ===`,
+  );
   lines.push(`TASK: ${session.task}`);
-  lines.push('');
+  lines.push("");
 
   // Filter history for the target workstream if specified
   const relevantHistory = session.history.filter((entry) => {
     if (!forWorkstream) return true;
-    return entry.content.includes(forWorkstream) || !entry.content.includes('workstream:');
+    return (
+      entry.content.includes(forWorkstream) ||
+      !entry.content.includes("workstream:")
+    );
   });
 
   for (const entry of relevantHistory) {
     lines.push(`--- ${entry.phase.toUpperCase()} (Round ${entry.round}) ---`);
     lines.push(entry.content);
-    lines.push('');
+    lines.push("");
   }
 
   // Add scores if available
@@ -839,40 +1220,43 @@ export function buildAnonymousHistory(session: SwarmSession, forWorkstream?: str
     : session.rounds;
 
   if (relevantRounds.length > 0) {
-    lines.push('--- SCORES ---');
+    lines.push("--- SCORES ---");
     for (const r of relevantRounds) {
       lines.push(
         `Round ${r.round} | Workstream: ${r.workstream} | Score: ${r.score}/10 | Critical Issues: ${r.criticalIssues}`,
       );
     }
-    lines.push('');
+    lines.push("");
   }
 
-  lines.push('--- YOUR OUTPUT ---');
+  lines.push("--- YOUR OUTPUT ---");
   lines.push(
-    'A contributor completed the prior phases above. Build on their work. ' +
-    'Do not reference specific contributors or models. ' +
-    'Focus on improving quality and addressing any identified issues.',
+    "A contributor completed the prior phases above. Build on their work. " +
+      "Do not reference specific contributors or models. " +
+      "Focus on improving quality and addressing any identified issues.",
   );
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // ── Identity Stripping ────────────────────────────────────────────────
 
 export function stripIdentity(text: string): string {
-  if (!text) return '';
+  if (!text) return "";
   // Remove ANSI codes
-  const noAnsi = text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+  const noAnsi = text.replace(
+    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+    "",
+  );
   // Remove model names
   return noAnsi
-    .replace(/claude[-\s]?\w+/gi, 'a contributor')
-    .replace(/gpt[-\s]?\w+/gi, 'a contributor')
-    .replace(/opus|sonnet|haiku|codex/gi, 'contributor')
-    .replace(/gemini[-\s]?\w+/gi, 'a contributor')
-    .replace(/agent[_-]?\d+/gi, 'a contributor')
-    .replace(/workstream[_-]?\d+/gi, 'workstream')
-    .replace(/ws-\d+/gi, 'workstream');
+    .replace(/claude[-\s]?\w+/gi, "a contributor")
+    .replace(/gpt[-\s]?\w+/gi, "a contributor")
+    .replace(/opus|sonnet|haiku|codex/gi, "contributor")
+    .replace(/gemini[-\s]?\w+/gi, "a contributor")
+    .replace(/agent[_-]?\d+/gi, "a contributor")
+    .replace(/workstream[_-]?\d+/gi, "workstream")
+    .replace(/ws-\d+/gi, "workstream");
 }
 
 // ── Prompt Store ──────────────────────────────────────────────────────
@@ -887,7 +1271,10 @@ export function storePrompt(session: SwarmSession, prompt: string): string {
   return ref;
 }
 
-export function getPrompt(session: SwarmSession, ref: string): string | undefined {
+export function getPrompt(
+  session: SwarmSession,
+  ref: string,
+): string | undefined {
   return session.promptStore.get(ref);
 }
 
@@ -896,9 +1283,9 @@ export function getPrompt(session: SwarmSession, ref: string): string | undefine
 export function postToBoard(
   session: SwarmSession,
   workstream: string,
-  type: BoardMessage['type'],
+  type: BoardMessage["type"],
   content: string,
-  level: BoardMessage['level'] = 'L3',
+  level: BoardMessage["level"] = "L3",
   group?: string,
   debateId?: string,
 ): BoardMessage {
@@ -918,7 +1305,7 @@ export function postToBoard(
 export function readBoard(
   session: SwarmSession,
   forWorkstream?: string,
-  types?: BoardMessage['type'][],
+  types?: BoardMessage["type"][],
 ): BoardMessage[] {
   let messages = session.board;
   // Exclude own messages (anonymous — you don't see your own posts labeled)
@@ -931,38 +1318,41 @@ export function readBoard(
   return messages;
 }
 
-export function buildBoardContext(session: SwarmSession, forWorkstream: string): string {
+export function buildBoardContext(
+  session: SwarmSession,
+  forWorkstream: string,
+): string {
   const messages = readBoard(session, forWorkstream);
-  if (messages.length === 0) return '';
+  if (messages.length === 0) return "";
 
-  const lines: string[] = ['', '--- FINDINGS FROM OTHER WORKSTREAMS ---'];
+  const lines: string[] = ["", "--- FINDINGS FROM OTHER WORKSTREAMS ---"];
   for (const msg of messages) {
     lines.push(`[${msg.type.toUpperCase()}] ${msg.content}`);
   }
-  lines.push('--- END FINDINGS ---');
-  lines.push('');
-  return lines.join('\n');
+  lines.push("--- END FINDINGS ---");
+  lines.push("");
+  return lines.join("\n");
 }
 
 export function getReadyWorkstreams(session: SwarmSession): Workstream[] {
   return session.workstreams.filter((ws) => {
-    if (ws.status !== 'pending' && ws.status !== 'ready') return false;
+    if (ws.status !== "pending" && ws.status !== "ready") return false;
     // Check all dependencies are done
     const depsReady = ws.dependencies.every((depId) => {
       const dep = session.workstreams.find((w) => w.id === depId);
-      return dep && dep.status === 'done';
+      return dep && dep.status === "done";
     });
-    if (depsReady) ws.status = 'ready';
+    if (depsReady) ws.status = "ready";
     return depsReady;
   });
 }
 
 export function getBlockedWorkstreams(session: SwarmSession): Workstream[] {
   return session.workstreams.filter((ws) => {
-    if (ws.status !== 'pending') return false;
+    if (ws.status !== "pending") return false;
     return ws.dependencies.some((depId) => {
       const dep = session.workstreams.find((w) => w.id === depId);
-      return !dep || dep.status !== 'done';
+      return !dep || dep.status !== "done";
     });
   });
 }
@@ -973,28 +1363,54 @@ export function getBlockedWorkstreams(session: SwarmSession): Workstream[] {
 // Manager models differ from their worker models for provider diversity.
 // All model assignments go through resolveModel() for automatic fallback.
 
-const MANAGER_AGENT_DEFS: Array<{ agent: string; model: string; provider: string }> = [
-  { agent: 'manager-anthropic', model: 'claude-sonnet-4.5',    provider: 'anthropic' },
-  { agent: 'manager-openai',    model: 'gpt-5.2-codex',        provider: 'openai' },
-  { agent: 'manager-gemini',    model: 'gemini-3-pro-preview',  provider: 'google' },
-  { agent: 'manager-anthropic', model: 'claude-sonnet-4',       provider: 'anthropic' },
-  { agent: 'manager-openai',    model: 'gpt-5.1-codex',        provider: 'openai' },
+const MANAGER_AGENT_DEFS: Array<{
+  agent: string;
+  model: string;
+  provider: string;
+}> = [
+  {
+    agent: "manager-anthropic",
+    model: "claude-sonnet-4.5",
+    provider: "anthropic",
+  },
+  { agent: "manager-openai", model: "gpt-5.2-codex", provider: "openai" },
+  {
+    agent: "manager-gemini",
+    model: "gemini-3-pro-preview",
+    provider: "google",
+  },
+  {
+    agent: "manager-anthropic",
+    model: "claude-sonnet-4",
+    provider: "anthropic",
+  },
+  { agent: "manager-openai", model: "gpt-5.1-codex", provider: "openai" },
 ];
 
 /** Get a validated manager definition — resolves model with fallback */
-function getValidManagerDef(index: number): { agent: string; model: string; provider: string } {
+function getValidManagerDef(index: number): {
+  agent: string;
+  model: string;
+  provider: string;
+} {
   const def = MANAGER_AGENT_DEFS[index % MANAGER_AGENT_DEFS.length];
   const resolved = resolveModel(def.model);
   const resolvedProvider = getModelProvider(resolved);
   // If model fell back to different provider, update agent name to match
-  const agent = resolvedProvider !== 'unknown'
-    ? getManagerAgentName(resolved)
-    : def.agent;
-  return { agent, model: resolved, provider: resolvedProvider !== 'unknown' ? resolvedProvider : def.provider };
+  const agent =
+    resolvedProvider !== "unknown" ? getManagerAgentName(resolved) : def.agent;
+  return {
+    agent,
+    model: resolved,
+    provider: resolvedProvider !== "unknown" ? resolvedProvider : def.provider,
+  };
 }
 
 // Workers assigned to each manager should use DIFFERENT providers than the manager
-function getWorkerModelsForManager(managerProvider: string, workerCount: number): string[] {
+function getWorkerModelsForManager(
+  managerProvider: string,
+  workerCount: number,
+): string[] {
   const otherModels = coderPool.filter((m) => {
     const entry = availableModels.find((am) => am.id === m);
     return entry && entry.provider !== managerProvider;
@@ -1011,20 +1427,28 @@ function getWorkerModelsForManager(managerProvider: string, workerCount: number)
 export function getManagerAgentName(modelId: string): string {
   const provider = getModelProvider(modelId);
   switch (provider) {
-    case 'anthropic': return 'manager-anthropic';
-    case 'openai': return 'manager-openai';
-    case 'google': return 'manager-gemini';
-    default: return 'manager-anthropic';
+    case "anthropic":
+      return "manager-anthropic";
+    case "openai":
+      return "manager-openai";
+    case "google":
+      return "manager-gemini";
+    default:
+      return "manager-anthropic";
   }
 }
 
 export function getWorkerAgentName(modelId: string): string {
   const provider = getModelProvider(modelId);
   switch (provider) {
-    case 'anthropic': return 'worker-anthropic';
-    case 'openai': return 'worker-openai';
-    case 'google': return 'worker-gemini';
-    default: return 'worker';
+    case "anthropic":
+      return "worker-anthropic";
+    case "openai":
+      return "worker-openai";
+    case "google":
+      return "worker-gemini";
+    default:
+      return "worker";
   }
 }
 
@@ -1036,15 +1460,15 @@ export function getWorkerAgentName(modelId: string): string {
 export function getRoleAgentName(role: WorkerRole, modelId: string): string {
   // Role-specific agents take priority when available
   const roleAgents: Record<WorkerRole, string> = {
-    'coder': 'worker-coder',
-    'tester': 'worker-tester',
-    'reviewer': 'worker', // reviewers use generic + critic model
-    'security': 'worker-security',
-    'architect': 'worker-architect',
-    'documenter': 'worker-documenter',
-    'debugger': 'worker-debugger',
-    'devops': 'worker',   // uses generic worker (no dedicated agent yet)
-    'meta-worker': 'worker', // meta-workers use generic + special permissions
+    coder: "worker-coder",
+    tester: "worker-tester",
+    reviewer: "worker", // reviewers use generic + critic model
+    security: "worker-security",
+    architect: "worker-architect",
+    documenter: "worker-documenter",
+    debugger: "worker-debugger",
+    devops: "worker", // uses generic worker (no dedicated agent yet)
+    "meta-worker": "worker", // meta-workers use generic + special permissions
   };
   return roleAgents[role] ?? getWorkerAgentName(modelId);
 }
@@ -1053,31 +1477,42 @@ export function getRoleAgentName(role: WorkerRole, modelId: string): string {
  * Classify a task description into a complexity level.
  * Used by L2 managers to route tasks to appropriate worker pools.
  */
-export function classifyTaskComplexity(description: string, files: string[]): TaskComplexity {
+export function classifyTaskComplexity(
+  description: string,
+  files: string[],
+): TaskComplexity {
   const lower = description.toLowerCase();
 
   // Review tasks
   if (/\breview\b|\baudit\b|\bcheck\b|\binspect\b|\bvalidate\b/.test(lower)) {
-    return 'review';
+    return "review";
   }
 
   // Complex: security, architecture, multi-system, performance
-  if (/\bsecurity\b|\bvulnerab|\barchitect|\bdesign\b|\bscalabil|\bperformance\b|\bmigrat|\brefactor\b/.test(lower)) {
-    return 'complex';
+  if (
+    /\bsecurity\b|\bvulnerab|\barchitect|\bdesign\b|\bscalabil|\bperformance\b|\bmigrat|\brefactor\b/.test(
+      lower,
+    )
+  ) {
+    return "complex";
   }
 
   // Complex: many files or cross-cutting concerns
   if (files.length > 5) {
-    return 'complex';
+    return "complex";
   }
 
   // Trivial: docs, renames, config, simple updates
-  if (/\bdoc\b|\breadme\b|\bcomment\b|\brename\b|\bconfig\b|\bformat\b|\btypo\b|\bfix\s+typo\b/.test(lower)) {
-    return 'trivial';
+  if (
+    /\bdoc\b|\breadme\b|\bcomment\b|\brename\b|\bconfig\b|\bformat\b|\btypo\b|\bfix\s+typo\b/.test(
+      lower,
+    )
+  ) {
+    return "trivial";
   }
 
   // Standard: everything else (feature impl, bug fixes, etc.)
-  return 'standard';
+  return "standard";
 }
 
 /**
@@ -1086,26 +1521,62 @@ export function classifyTaskComplexity(description: string, files: string[]): Ta
 export function inferWorkerRole(description: string): WorkerRole {
   const lower = description.toLowerCase();
 
-  if (/\btest\b|\bspec\b|\bcoverage\b|\bunit test\b|\bintegration test\b/.test(lower)) return 'tester';
-  if (/\breview\b|\baudit\b|\bcode review\b|\bquality\b/.test(lower)) return 'reviewer';
-  if (/\bsecurity\b|\bvulnerab|\bauth\b|\bencrypt\b|\bsanitiz|\binjection\b/.test(lower)) return 'security';
-  if (/\barchitect|\bdesign\b|\bapi contract\b|\bschema\b|\bdata model\b/.test(lower)) return 'architect';
-  if (/\bdoc\b|\breadme\b|\bchangelog\b|\bcomment\b|\bdiagram\b/.test(lower)) return 'documenter';
-  if (/\bdebug\b|\broot cause\b|\bbisect\b|\breproducg?\b|\bstack trace\b|\bfix\b.*\bbug\b/.test(lower)) return 'debugger';
-  if (/\bdeploy\b|\bci\/cd\b|\bdocker\b|\bpipeline\b|\binfra\b|\bterraform\b/.test(lower)) return 'devops';
+  if (
+    /\btest\b|\bspec\b|\bcoverage\b|\bunit test\b|\bintegration test\b/.test(
+      lower,
+    )
+  )
+    return "tester";
+  if (/\breview\b|\baudit\b|\bcode review\b|\bquality\b/.test(lower))
+    return "reviewer";
+  if (
+    /\bsecurity\b|\bvulnerab|\bauth\b|\bencrypt\b|\bsanitiz|\binjection\b/.test(
+      lower,
+    )
+  )
+    return "security";
+  if (
+    /\barchitect|\bdesign\b|\bapi contract\b|\bschema\b|\bdata model\b/.test(
+      lower,
+    )
+  )
+    return "architect";
+  if (/\bdoc\b|\breadme\b|\bchangelog\b|\bcomment\b|\bdiagram\b/.test(lower))
+    return "documenter";
+  if (
+    /\bdebug\b|\broot cause\b|\bbisect\b|\breproducg?\b|\bstack trace\b|\bfix\b.*\bbug\b/.test(
+      lower,
+    )
+  )
+    return "debugger";
+  if (
+    /\bdeploy\b|\bci\/cd\b|\bdocker\b|\bpipeline\b|\binfra\b|\bterraform\b/.test(
+      lower,
+    )
+  )
+    return "devops";
 
-  return 'coder'; // default role
+  return "coder"; // default role
 }
 
 /**
  * Get the model pool appropriate for a task complexity level.
  */
-export function getModelForComplexity(complexity: TaskComplexity, index: number): string {
+export function getModelForComplexity(
+  complexity: TaskComplexity,
+  index: number,
+): string {
   switch (complexity) {
-    case 'trivial':  return getFastModel(index);
-    case 'standard': return getCoderModel(index);
-    case 'complex':  return premiumPool.length > 0 ? premiumPool[index % premiumPool.length] : getCoderModel(index);
-    case 'review':   return getCriticModel(index);
+    case "trivial":
+      return getFastModel(index);
+    case "standard":
+      return getCoderModel(index);
+    case "complex":
+      return premiumPool.length > 0
+        ? premiumPool[index % premiumPool.length]
+        : getCoderModel(index);
+    case "review":
+      return getCriticModel(index);
   }
 }
 
@@ -1148,7 +1619,7 @@ export function groupWorkstreams(session: SwarmSession): AgentGroup[] {
         description: ws.description,
         files: ws.files,
         role,
-        mode: 'implement' as WorkerMode,
+        mode: "implement" as WorkerMode,
         complexity,
       };
     });
@@ -1158,8 +1629,8 @@ export function groupWorkstreams(session: SwarmSession): AgentGroup[] {
       managerAgent: managerDef.agent,
       managerModel: managerDef.model,
       workerSlots,
-      plan: '',
-      status: 'pending',
+      plan: "",
+      status: "pending",
     });
   }
 
@@ -1182,19 +1653,28 @@ export function buildManagerPrompt(
   history: string,
 ): string {
   // Get cross-group findings (blue lines: L2↔L2 communication)
-  const otherGroupMsgs = session.board.filter(m =>
-    m.group !== group.id && (m.type === 'report' || m.type === 'finding' || m.type === 'decision')
+  const otherGroupMsgs = session.board.filter(
+    (m) =>
+      m.group !== group.id &&
+      (m.type === "report" || m.type === "finding" || m.type === "decision"),
   );
-  const crossGroupCtx = otherGroupMsgs.length > 0
-    ? otherGroupMsgs.map(m =>
-        `[${m.level}/${m.group ?? m.workstream}] ${m.type.toUpperCase()}: ${m.content}`
-      ).join('\n')
-    : 'No cross-group messages yet.';
+  const crossGroupCtx =
+    otherGroupMsgs.length > 0
+      ? otherGroupMsgs
+          .map(
+            (m) =>
+              `[${m.level}/${m.group ?? m.workstream}] ${m.type.toUpperCase()}: ${m.content}`,
+          )
+          .join("\n")
+      : "No cross-group messages yet.";
 
-  const workerSpecs = group.workerSlots.map((ws, i) => {
-    const filesStr = ws.files.length > 0 ? `Files: ${ws.files.join(', ')}` : 'Files: TBD';
-    return `  Worker ${i}: subagent_type="${ws.agentType}" | Workstream: ${ws.workstreamId} | ${ws.description} | ${filesStr}`;
-  }).join('\n');
+  const workerSpecs = group.workerSlots
+    .map((ws, i) => {
+      const filesStr =
+        ws.files.length > 0 ? `Files: ${ws.files.join(", ")}` : "Files: TBD";
+      return `  Worker ${i}: subagent_type="${ws.agentType}" | Workstream: ${ws.workstreamId} | ${ws.description} | ${filesStr}`;
+    })
+    .join("\n");
 
   const scratchDir = `${session.outputDir}/${group.id}`;
   const statusFile = `${session.outputDir}/${group.id}-status.md`;
@@ -1202,136 +1682,139 @@ export function buildManagerPrompt(
 
   return [
     history,
-    '',
-    '═══════════════════════════════════════════════════════════════',
+    "",
+    "═══════════════════════════════════════════════════════════════",
     `YOUR ROLE: L2 AGENT MANAGER — ${group.id}`,
     `PHASE: ${phaseName}`,
-    '═══════════════════════════════════════════════════════════════',
-    '',
-    '## HIERARCHY',
-    '```',
-    'L1 Orchestrator (the boss — makes strategic decisions, resolves debates)',
+    "═══════════════════════════════════════════════════════════════",
+    "",
+    "## HIERARCHY",
+    "```",
+    "L1 Orchestrator (the boss — makes strategic decisions, resolves debates)",
     `  └── YOU: L2 Manager [${group.id}] (plan, delegate, coordinate, report)`,
-    group.workerSlots.map((ws, i) =>
-      `        └── L3 Worker ${i} [${ws.workstreamId}] (${ws.agentType})`
-    ).join('\n'),
-    '```',
-    '',
-    '## YOUR TEAM',
+    group.workerSlots
+      .map(
+        (ws, i) =>
+          `        └── L3 Worker ${i} [${ws.workstreamId}] (${ws.agentType})`,
+      )
+      .join("\n"),
+    "```",
+    "",
+    "## YOUR TEAM",
     workerSpecs,
-    '',
-    '## COMMUNICATION CHANNELS',
-    '',
-    '### 🔴 STATUS REPORTING (L2 → L1) — MANDATORY',
-    'The orchestrator needs to see the big picture while you work.',
+    "",
+    "## COMMUNICATION CHANNELS",
+    "",
+    "### 🔴 STATUS REPORTING (L2 → L1) — MANDATORY",
+    "The orchestrator needs to see the big picture while you work.",
     `Your status file: ${statusFile}`,
     `Global status board: ${statusBoard}`,
-    '',
-    'You MUST update your status file at EVERY milestone:',
-    '```bash',
+    "",
+    "You MUST update your status file at EVERY milestone:",
+    "```bash",
     `cat >> ${statusFile} << 'EOF'`,
     `[$(date +%H:%M:%S)] PHASE: planning | STATUS: <status> | SUMMARY: <1-line big picture>`,
-    'EOF',
-    '```',
-    '',
-    'Required status updates:',
-    '  1. After planning: what you intend to do, how work is split',
-    '  2. After dispatching workers: which workers launched, what each is doing',
-    '  3. After each worker completes: pass/fail, key findings',
-    '  4. After coordination: conflicts found, how resolved',
-    '  5. Before final report: executive summary for the boss',
-    '',
+    "EOF",
+    "```",
+    "",
+    "Required status updates:",
+    "  1. After planning: what you intend to do, how work is split",
+    "  2. After dispatching workers: which workers launched, what each is doing",
+    "  3. After each worker completes: pass/fail, key findings",
+    "  4. After coordination: conflicts found, how resolved",
+    "  5. Before final report: executive summary for the boss",
+    "",
     `Also append to the global board so the boss sees all teams:`,
-    '```bash',
+    "```bash",
     `echo "[${group.id}] $(date +%H:%M:%S) | <status>" >> ${statusBoard}`,
-    '```',
-    '',
-    '### 🔵 Intra-team (your workers talk to each other)',
+    "```",
+    "",
+    "### 🔵 Intra-team (your workers talk to each other)",
     `Workers share a scratch directory: ${scratchDir}/`,
-    'Tell each worker to:',
+    "Tell each worker to:",
     `  1. Write their findings to ${scratchDir}/<workstream-id>-findings.md`,
     `  2. Read ${scratchDir}/ for teammate findings before finalizing`,
-    'This lets workers on your team coordinate without going through you.',
-    '',
-    '### 🔵 Cross-team context (from other L2 managers)',
+    "This lets workers on your team coordinate without going through you.",
+    "",
+    "### 🔵 Cross-team context (from other L2 managers)",
     crossGroupCtx,
-    '',
-    '### ⚠️ Escalation (debates → L1 boss)',
-    'If your workers disagree and you CANNOT resolve it:',
-    '  - Do NOT guess. Mark it as ESCALATION in your report.',
+    "",
+    "### ⚠️ Escalation (debates → L1 boss)",
+    "If your workers disagree and you CANNOT resolve it:",
+    "  - Do NOT guess. Mark it as ESCALATION in your report.",
     `  - Write it to ${statusFile} immediately so the boss can see it.`,
-    '  - The L1 orchestrator (the boss) will make the call.',
-    '',
-    '### 🔥 Structured Debate Protocol (for worker disagreements)',
-    'If your workers produce CONFLICTING outputs that you cannot easily resolve:',
-    '',
-    '1. DO NOT guess or pick one arbitrarily',
+    "  - The L1 orchestrator (the boss) will make the call.",
+    "",
+    "### 🔥 Structured Debate Protocol (for worker disagreements)",
+    "If your workers produce CONFLICTING outputs that you cannot easily resolve:",
+    "",
+    "1. DO NOT guess or pick one arbitrarily",
     `2. Call swarm_debate(action="start", sessionId="${session.id}", groupId="${group.id}",`,
     '   topic="<what they disagree on>", trigger="disagreement")',
-    '3. The server will set up a structured debate between workers',
+    "3. The server will set up a structured debate between workers",
     '4. Call swarm_debate(action="next", debateId=<returned id>) to get debate phase prompts',
-    '5. Dispatch workers with the debate prompts (parallel)',
+    "5. Dispatch workers with the debate prompts (parallel)",
     '6. Submit their outputs via swarm_debate(action="submit", debateId=<id>, slotId=<slot>, content=<output>)',
     '7. Call swarm_debate(action="evaluate", debateId=<id>) for convergence check',
     '8. If converged → call swarm_debate(action="synthesize"); if stalled → escalate to L1',
-    '',
-    'When to trigger debate:',
-    '  - Workers propose incompatible approaches to the same problem',
-    '  - Quality scores diverge significantly (>3 point gap)',
-    '  - Workers flag contradictory findings about the codebase',
-    '  - Your workstream assignment is tagged as debate-type',
-    '',
-    'The debate protocol ensures adversarial critique yields higher accuracy than',
-    'collaborative consensus (Agent-Skills: multi-agent-patterns §Debate Protocols).',
-    '',
-    '## EXECUTION PROTOCOL',
-    '',
+    "",
+    "When to trigger debate:",
+    "  - Workers propose incompatible approaches to the same problem",
+    "  - Quality scores diverge significantly (>3 point gap)",
+    "  - Workers flag contradictory findings about the codebase",
+    "  - Your workstream assignment is tagged as debate-type",
+    "",
+    "The debate protocol ensures adversarial critique yields higher accuracy than",
+    "collaborative consensus (Agent-Skills: multi-agent-patterns §Debate Protocols).",
+    "",
+    "## EXECUTION PROTOCOL",
+    "",
     `1. SETUP: mkdir -p ${scratchDir} && touch ${statusFile}`,
     `   Update status: "PLANNING — analyzing task and dividing work"`,
-    '',
-    '2. PLAN: Analyze the task. Decide how to split work across your workers.',
+    "",
+    "2. PLAN: Analyze the task. Decide how to split work across your workers.",
     '   Update status: "PLANNED — <summary of plan>"',
-    '',
-    '3. DISPATCH ALL WORKERS SIMULTANEOUSLY:',
-    '   For EACH worker, call task() in the SAME message:',
-    '   ```',
+    "",
+    "3. DISPATCH ALL WORKERS SIMULTANEOUSLY:",
+    "   For EACH worker, call task() in the SAME message:",
+    "   ```",
     '   task(subagent_type="<agent>", description="<task>", prompt="<instructions>")',
-    '   ```',
-    '   In each worker prompt, include:',
+    "   ```",
+    "   In each worker prompt, include:",
     `   - Their specific assignment and files`,
     `   - Path to scratch dir (${scratchDir}) for team communication`,
-    '   - Context from cross-team findings above',
+    "   - Context from cross-team findings above",
     '   Update status: "DISPATCHED — N workers launched"',
-    '',
-    '4. REVIEW & COORDINATE:',
-    '   - Check each worker\'s output for quality',
-    '   - If workers conflict: resolve it yourself OR re-dispatch with clarification',
-    '   - If a debate is unresolvable: mark as ESCALATION',
+    "",
+    "4. REVIEW & COORDINATE:",
+    "   - Check each worker's output for quality",
+    "   - If workers conflict: resolve it yourself OR re-dispatch with clarification",
+    "   - If a debate is unresolvable: mark as ESCALATION",
     '   Update status after each worker: "WORKER <id> COMPLETE — <1-line result>"',
-    '',
-    '5. SYNTHESIZE & REPORT in this EXACT format:',
-    '',
-    '## Plan',
-    '<how you divided work across your team>',
-    '',
-    '## Results',
-    '<synthesized deliverable from all workers>',
-    '',
-    '## Team Coordination',
-    '<how workers communicated, conflicts resolved>',
-    '',
-    '## Issues',
-    '<problems found, blockers hit>',
-    '',
-    '## Escalations',
-    '<NONE or unresolved debates that need L1 boss decision>',
-    '',
-    '## Cross-Team Notes',
-    '<things other L2 managers should know about your work>',
-    '',
-    '─── CRITICAL: DO NOT DO THE WORK YOURSELF ───',
-    'You are a manager. Spawn workers. Only touch code to resolve worker conflicts.',
-  ].join('\n');
+    "",
+    "5. SYNTHESIZE & REPORT in this EXACT format:",
+    "",
+    "## Plan",
+    "<how you divided work across your team>",
+    "",
+    "## Results",
+    "<synthesized deliverable from all workers>",
+    "",
+    "## Team Coordination",
+    "<how workers communicated, conflicts resolved>",
+    "",
+    "## Issues",
+    "<problems found, blockers hit>",
+    "",
+    "## Escalations",
+    "<NONE or unresolved debates that need L1 boss decision>",
+    "",
+    "## Cross-Team Notes",
+    "<things other L2 managers should know about your work>",
+    "",
+    "─── CRITICAL: DO NOT DO THE WORK YOURSELF ───",
+    "You are a manager. Spawn workers. Only touch code to resolve worker conflicts.",
+  ].join("\n");
 }
 
 // ── Debate Protocol Helpers ───────────────────────────────────────────
@@ -1356,7 +1839,7 @@ export function getDebaterModel(
   session: SwarmSession,
 ): string {
   if (groupId) {
-    const group = session.agentGroups.find(g => g.id === groupId);
+    const group = session.agentGroups.find((g) => g.id === groupId);
     if (group && index < group.workerSlots.length) {
       return group.workerSlots[index].model;
     }
@@ -1373,7 +1856,7 @@ export function getDebaterAgentType(
   session: SwarmSession,
 ): string {
   if (groupId) {
-    const group = session.agentGroups.find(g => g.id === groupId);
+    const group = session.agentGroups.find((g) => g.id === groupId);
     if (group && index < group.workerSlots.length) {
       return group.workerSlots[index].agentType;
     }
@@ -1393,7 +1876,7 @@ export function createDebate(
   maxRounds: number = 3,
 ): DebateState {
   const id = generateDebateId();
-  const initiatorLevel = groupId ? 'L2' : 'L1';
+  const initiatorLevel = groupId ? "L2" : "L1";
 
   const participants: DebateParticipant[] = [];
   for (let i = 0; i < participantCount; i++) {
@@ -1413,7 +1896,7 @@ export function createDebate(
     topic,
     trigger,
     initiatorLevel,
-    status: 'pending',
+    status: "pending",
     participants,
     rounds: [],
     currentRound: 0,
@@ -1433,8 +1916,11 @@ export function createDebate(
 /**
  * Get a debate by ID from a session.
  */
-export function getDebate(session: SwarmSession, debateId: string): DebateState | undefined {
-  return session.debates.find(d => d.id === debateId);
+export function getDebate(
+  session: SwarmSession,
+  debateId: string,
+): DebateState | undefined {
+  return session.debates.find((d) => d.id === debateId);
 }
 
 /**
@@ -1454,41 +1940,47 @@ export function advanceDebatePhase(debate: DebateState): {
     debate.currentRound = roundNumber;
     const newRound: DebateRound = {
       roundNumber,
-      phase: 'position',
+      phase: "position",
       contributions: [],
       startedAt: Date.now(),
     };
     debate.rounds.push(newRound);
-    debate.status = 'active';
-    return { phase: 'position', round: roundNumber, isNewRound: true };
+    debate.status = "active";
+    return { phase: "position", round: roundNumber, isNewRound: true };
   }
 
   // Check what contributions exist for this round to determine next phase
-  const positionCount = currentRound.contributions.filter(c => c.phase === 'position').length;
-  const critiqueCount = currentRound.contributions.filter(c => c.phase === 'critique').length;
-  const rebuttalCount = currentRound.contributions.filter(c => c.phase === 'rebuttal').length;
+  const positionCount = currentRound.contributions.filter(
+    (c) => c.phase === "position",
+  ).length;
+  const critiqueCount = currentRound.contributions.filter(
+    (c) => c.phase === "critique",
+  ).length;
+  const rebuttalCount = currentRound.contributions.filter(
+    (c) => c.phase === "rebuttal",
+  ).length;
   const participantCount = debate.participants.length;
 
   if (positionCount < participantCount) {
-    currentRound.phase = 'position';
-    return { phase: 'position', round: debate.currentRound, isNewRound: false };
+    currentRound.phase = "position";
+    return { phase: "position", round: debate.currentRound, isNewRound: false };
   }
 
   // Each participant critiques all OTHER positions
   const expectedCritiques = participantCount * (participantCount - 1);
   if (critiqueCount < expectedCritiques) {
-    currentRound.phase = 'critique';
-    return { phase: 'critique', round: debate.currentRound, isNewRound: false };
+    currentRound.phase = "critique";
+    return { phase: "critique", round: debate.currentRound, isNewRound: false };
   }
 
   if (rebuttalCount < participantCount) {
-    currentRound.phase = 'rebuttal';
-    return { phase: 'rebuttal', round: debate.currentRound, isNewRound: false };
+    currentRound.phase = "rebuttal";
+    return { phase: "rebuttal", round: debate.currentRound, isNewRound: false };
   }
 
   // All contributions collected — ready for evaluation
-  currentRound.phase = 'evaluation';
-  return { phase: 'evaluation', round: debate.currentRound, isNewRound: false };
+  currentRound.phase = "evaluation";
+  return { phase: "evaluation", round: debate.currentRound, isNewRound: false };
 }
 
 /**
@@ -1500,21 +1992,24 @@ export function buildDebatePositionPrompt(
   participant: DebateParticipant,
   session: SwarmSession,
 ): string {
-  const priorRounds = debate.rounds.filter(r => r.completedAt);
-  let historySection = '';
+  const priorRounds = debate.rounds.filter((r) => r.completedAt);
+  let historySection = "";
 
   if (priorRounds.length > 0) {
-    const roundSummaries = priorRounds.map(r => {
+    const roundSummaries = priorRounds.map((r) => {
       const positions = r.contributions
-        .filter(c => c.phase === 'position')
-        .map((c, i) => `  Position ${i + 1}: ${c.content.substring(0, 500)}${c.content.length > 500 ? '...' : ''}`)
-        .join('\n');
+        .filter((c) => c.phase === "position")
+        .map(
+          (c, i) =>
+            `  Position ${i + 1}: ${c.content.substring(0, 500)}${c.content.length > 500 ? "..." : ""}`,
+        )
+        .join("\n");
       const evalNote = r.evaluation
         ? `  Evaluation: convergence=${(r.evaluation.convergenceScore * 100).toFixed(0)}%, recommendation=${r.evaluation.recommendation}`
-        : '';
+        : "";
       return `Round ${r.roundNumber}:\n${positions}\n${evalNote}`;
     });
-    historySection = `\n## PRIOR DEBATE ROUNDS (anonymous)\n${roundSummaries.join('\n\n')}\n`;
+    historySection = `\n## PRIOR DEBATE ROUNDS (anonymous)\n${roundSummaries.join("\n\n")}\n`;
   }
 
   return `You are participating in a structured debate. Your role is to present and defend your position.
@@ -1561,12 +2056,13 @@ export function buildDebateCritiquePrompt(
 ): string {
   const currentRound = debate.rounds[debate.rounds.length - 1];
   const otherPositions = currentRound.contributions
-    .filter(c => c.phase === 'position' && c.slotId !== participant.slotId)
+    .filter((c) => c.phase === "position" && c.slotId !== participant.slotId)
     .map((c, i) => `### Anonymous Position ${i + 1}\n${c.content}`)
-    .join('\n\n');
+    .join("\n\n");
 
-  const myPosition = currentRound.contributions
-    .find(c => c.phase === 'position' && c.slotId === participant.slotId);
+  const myPosition = currentRound.contributions.find(
+    (c) => c.phase === "position" && c.slotId === participant.slotId,
+  );
 
   return `You are participating in a structured debate. Your role is to CRITIQUE other positions.
 
@@ -1574,7 +2070,7 @@ export function buildDebateCritiquePrompt(
 ${debate.topic}
 
 ## YOUR POSITION (for reference)
-${myPosition?.content ?? 'Not yet submitted'}
+${myPosition?.content ?? "Not yet submitted"}
 
 ## OTHER POSITIONS TO CRITIQUE
 ${otherPositions}
@@ -1612,16 +2108,17 @@ export function buildDebateRebuttalPrompt(
 ): string {
   const currentRound = debate.rounds[debate.rounds.length - 1];
 
-  const myPosition = currentRound.contributions
-    .find(c => c.phase === 'position' && c.slotId === participant.slotId);
+  const myPosition = currentRound.contributions.find(
+    (c) => c.phase === "position" && c.slotId === participant.slotId,
+  );
 
   const critiquesOfMe = currentRound.contributions
-    .filter(c => c.phase === 'critique' && c.slotId !== participant.slotId)
+    .filter((c) => c.phase === "critique" && c.slotId !== participant.slotId)
     .map((c, i) => {
       // Extract the critique of this participant's position from the full critique
       return `### Critique from Reviewer ${i + 1}\n${c.content}`;
     })
-    .join('\n\n');
+    .join("\n\n");
 
   return `You are participating in a structured debate. Your role is to DEFEND or REVISE your position.
 
@@ -1629,7 +2126,7 @@ export function buildDebateRebuttalPrompt(
 ${debate.topic}
 
 ## YOUR ORIGINAL POSITION
-${myPosition?.content ?? 'Not yet submitted'}
+${myPosition?.content ?? "Not yet submitted"}
 
 ## CRITIQUES OF YOUR POSITION
 ${critiquesOfMe}
@@ -1669,20 +2166,25 @@ export function buildDebateSynthesisPrompt(
   debate: DebateState,
   session: SwarmSession,
 ): string {
-  const roundSummaries = debate.rounds.map(r => {
-    const positions = r.contributions
-      .filter(c => c.phase === 'position')
-      .map((c, i) => `  Position ${i + 1} (${c.score ? `score: ${c.score.total}/11` : 'unscored'}): ${c.content.substring(0, 800)}`)
-      .join('\n');
-    const rebuttals = r.contributions
-      .filter(c => c.phase === 'rebuttal')
-      .map((c, i) => `  Rebuttal ${i + 1}: ${c.content.substring(0, 500)}`)
-      .join('\n');
-    const evalNote = r.evaluation
-      ? `  Evaluation: convergence=${(r.evaluation.convergenceScore * 100).toFixed(0)}%, sycophancy=${(r.evaluation.sycophancyScore * 100).toFixed(0)}%, recommendation=${r.evaluation.recommendation}`
-      : '';
-    return `### Round ${r.roundNumber}\nPositions:\n${positions}\nRebuttals:\n${rebuttals}\n${evalNote}`;
-  }).join('\n\n');
+  const roundSummaries = debate.rounds
+    .map((r) => {
+      const positions = r.contributions
+        .filter((c) => c.phase === "position")
+        .map(
+          (c, i) =>
+            `  Position ${i + 1} (${c.score ? `score: ${c.score.total}/11` : "unscored"}): ${c.content.substring(0, 800)}`,
+        )
+        .join("\n");
+      const rebuttals = r.contributions
+        .filter((c) => c.phase === "rebuttal")
+        .map((c, i) => `  Rebuttal ${i + 1}: ${c.content.substring(0, 500)}`)
+        .join("\n");
+      const evalNote = r.evaluation
+        ? `  Evaluation: convergence=${(r.evaluation.convergenceScore * 100).toFixed(0)}%, sycophancy=${(r.evaluation.sycophancyScore * 100).toFixed(0)}%, recommendation=${r.evaluation.recommendation}`
+        : "";
+      return `### Round ${r.roundNumber}\nPositions:\n${positions}\nRebuttals:\n${rebuttals}\n${evalNote}`;
+    })
+    .join("\n\n");
 
   const lastEval = debate.rounds[debate.rounds.length - 1]?.evaluation;
 
@@ -1698,10 +2200,14 @@ ${session.task}
 ${roundSummaries}
 
 ## LAST EVALUATION
-${lastEval ? `Convergence: ${(lastEval.convergenceScore * 100).toFixed(0)}%
-Dominant position: ${lastEval.dominantPosition ?? 'none'}
+${
+  lastEval
+    ? `Convergence: ${(lastEval.convergenceScore * 100).toFixed(0)}%
+Dominant position: ${lastEval.dominantPosition ?? "none"}
 Recommendation: ${lastEval.recommendation}
-Reasoning: ${lastEval.reasoning}` : 'No evaluation available'}
+Reasoning: ${lastEval.reasoning}`
+    : "No evaluation available"
+}
 
 ## YOUR ASSIGNMENT
 Synthesize the debate into a FINAL DECISION. You are not picking a winner — you are producing the best answer informed by all perspectives.
@@ -1737,20 +2243,22 @@ export function buildEscalationContext(
   debate: DebateState,
   session: SwarmSession,
 ): string {
-  const roundSummaries = debate.rounds.map(r => {
-    const positions = r.contributions
-      .filter(c => c.phase === 'position')
-      .map((c, i) => `  Position ${i + 1}: ${c.content.substring(0, 600)}`)
-      .join('\n');
-    const evalNote = r.evaluation
-      ? `  Convergence: ${(r.evaluation.convergenceScore * 100).toFixed(0)}%, Sycophancy: ${(r.evaluation.sycophancyScore * 100).toFixed(0)}%, Recommendation: ${r.evaluation.recommendation}`
-      : '';
-    return `Round ${r.roundNumber}:\n${positions}\n${evalNote}`;
-  }).join('\n\n');
+  const roundSummaries = debate.rounds
+    .map((r) => {
+      const positions = r.contributions
+        .filter((c) => c.phase === "position")
+        .map((c, i) => `  Position ${i + 1}: ${c.content.substring(0, 600)}`)
+        .join("\n");
+      const evalNote = r.evaluation
+        ? `  Convergence: ${(r.evaluation.convergenceScore * 100).toFixed(0)}%, Sycophancy: ${(r.evaluation.sycophancyScore * 100).toFixed(0)}%, Recommendation: ${r.evaluation.recommendation}`
+        : "";
+      return `Round ${r.roundNumber}:\n${positions}\n${evalNote}`;
+    })
+    .join("\n\n");
 
   return `## ESCALATED DEBATE: ${debate.topic}
 Debate ID: ${debate.id}
-Group: ${debate.groupId ?? 'L1-level'}
+Group: ${debate.groupId ?? "L1-level"}
 Trigger: ${debate.trigger}
 Rounds completed: ${debate.currentRound}/${debate.maxRounds}
 Status: ${debate.status}
@@ -1759,7 +2267,7 @@ Status: ${debate.status}
 ${roundSummaries}
 
 ### Why Escalated
-${debate.rounds[debate.rounds.length - 1]?.evaluation?.reasoning ?? 'Max rounds exceeded without convergence'}
+${debate.rounds[debate.rounds.length - 1]?.evaluation?.reasoning ?? "Max rounds exceeded without convergence"}
 
 ### What is needed
 A decision from the L1 orchestrator on which approach to take, or a directive to modify the approach entirely.
@@ -1774,49 +2282,69 @@ export function scoreDebatePositions(
   round: DebateRound,
   debate: DebateState,
 ): DebatePositionScore[] {
-  return debate.participants.map(participant => {
+  return debate.participants.map((participant) => {
     const position = round.contributions.find(
-      c => c.slotId === participant.slotId && c.phase === 'position'
+      (c) => c.slotId === participant.slotId && c.phase === "position",
     );
     const rebuttal = round.contributions.find(
-      c => c.slotId === participant.slotId && c.phase === 'rebuttal'
+      (c) => c.slotId === participant.slotId && c.phase === "rebuttal",
     );
     const critiquesReceived = round.contributions.filter(
-      c => c.phase === 'critique' && c.slotId !== participant.slotId
+      (c) => c.phase === "critique" && c.slotId !== participant.slotId,
     );
 
     // Evidence: presence of specific markers (code blocks, numbers, file refs)
-    const evidenceMarkers = (position?.content ?? '').match(
-      /```|`[^`]+`|\d+\.\d+|\bfile\b|\bline\b|\bfunction\b|\bclass\b|\bmodule\b/gi
-    ) ?? [];
+    const evidenceMarkers =
+      (position?.content ?? "").match(
+        /```|`[^`]+`|\d+\.\d+|\bfile\b|\bline\b|\bfunction\b|\bclass\b|\bmodule\b/gi,
+      ) ?? [];
     const evidenceQuality = Math.min(3, Math.floor(evidenceMarkers.length / 2));
 
     // Reasoning: structured arguments
-    const reasoningMarkers = (position?.content ?? '').match(
-      /\bbecause\b|\btherefore\b|\bhowever\b|\bif\b.*\bthen\b|\bconsequently\b|\bthus\b|\bin contrast\b|\bon the other hand\b/gi
-    ) ?? [];
-    const reasoningClarity = Math.min(3, Math.floor(reasoningMarkers.length / 1.5));
+    const reasoningMarkers =
+      (position?.content ?? "").match(
+        /\bbecause\b|\btherefore\b|\bhowever\b|\bif\b.*\bthen\b|\bconsequently\b|\bthus\b|\bin contrast\b|\bon the other hand\b/gi,
+      ) ?? [];
+    const reasoningClarity = Math.min(
+      3,
+      Math.floor(reasoningMarkers.length / 1.5),
+    );
 
     // Rebuttal effectiveness: did they address the critiques?
-    const addressedCount = critiquesReceived.filter(critique => {
-      const keywords = critique.content.split(/\s+/).filter(w => w.length > 5).slice(0, 5);
-      return keywords.some(kw => (rebuttal?.content ?? '').toLowerCase().includes(kw.toLowerCase()));
+    const addressedCount = critiquesReceived.filter((critique) => {
+      const keywords = critique.content
+        .split(/\s+/)
+        .filter((w) => w.length > 5)
+        .slice(0, 5);
+      return keywords.some((kw) =>
+        (rebuttal?.content ?? "").toLowerCase().includes(kw.toLowerCase()),
+      );
     }).length;
-    const rebuttalEffectiveness = critiquesReceived.length > 0
-      ? Math.min(3, Math.round((addressedCount / critiquesReceived.length) * 3))
-      : 1;
+    const rebuttalEffectiveness =
+      critiquesReceived.length > 0
+        ? Math.min(
+            3,
+            Math.round((addressedCount / critiquesReceived.length) * 3),
+          )
+        : 1;
 
     // Novelty: unique terms not in other positions
     const otherContent = round.contributions
-      .filter(c => c.phase === 'position' && c.slotId !== participant.slotId)
-      .map(c => c.content.toLowerCase())
-      .join(' ');
-    const myTerms = new Set((position?.content ?? '').toLowerCase().match(/\b\w{6,}\b/g) ?? []);
+      .filter((c) => c.phase === "position" && c.slotId !== participant.slotId)
+      .map((c) => c.content.toLowerCase())
+      .join(" ");
+    const myTerms = new Set(
+      (position?.content ?? "").toLowerCase().match(/\b\w{6,}\b/g) ?? [],
+    );
     const otherTerms = new Set(otherContent.match(/\b\w{6,}\b/g) ?? []);
-    const uniqueTerms = [...myTerms].filter(t => !otherTerms.has(t));
+    const uniqueTerms = [...myTerms].filter((t) => !otherTerms.has(t));
     const novelContribution = Math.min(2, Math.floor(uniqueTerms.length / 10));
 
-    const total = evidenceQuality + reasoningClarity + rebuttalEffectiveness + novelContribution;
+    const total =
+      evidenceQuality +
+      reasoningClarity +
+      rebuttalEffectiveness +
+      novelContribution;
 
     const score: DebatePositionScore = {
       evidenceQuality,
@@ -1842,33 +2370,38 @@ export function scoreDebatePositions(
 export function computeDebateConvergence(debate: DebateState): {
   score: number;
   delta: number;
-  trending: 'converging' | 'diverging' | 'stable';
+  trending: "converging" | "diverging" | "stable";
 } {
   if (debate.rounds.length === 0) {
-    return { score: 0, delta: 0, trending: 'stable' };
+    return { score: 0, delta: 0, trending: "stable" };
   }
 
   const currentRound = debate.rounds[debate.rounds.length - 1];
-  const positions = currentRound.contributions.filter(c => c.phase === 'position');
-  const rebuttals = currentRound.contributions.filter(c => c.phase === 'rebuttal');
+  const positions = currentRound.contributions.filter(
+    (c) => c.phase === "position",
+  );
+  const rebuttals = currentRound.contributions.filter(
+    (c) => c.phase === "rebuttal",
+  );
 
   // Use rebuttals if available (they're revised positions), else use positions
-  const finalTexts = rebuttals.length > 0
-    ? rebuttals.map(c => c.content.toLowerCase())
-    : positions.map(c => c.content.toLowerCase());
+  const finalTexts =
+    rebuttals.length > 0
+      ? rebuttals.map((c) => c.content.toLowerCase())
+      : positions.map((c) => c.content.toLowerCase());
 
   if (finalTexts.length < 2) {
-    return { score: 1, delta: 0, trending: 'stable' };
+    return { score: 1, delta: 0, trending: "stable" };
   }
 
   // Compute pairwise similarity using word overlap (Jaccard-like)
-  const wordSets = finalTexts.map(t => new Set(t.match(/\b\w{4,}\b/g) ?? []));
+  const wordSets = finalTexts.map((t) => new Set(t.match(/\b\w{4,}\b/g) ?? []));
   let totalSimilarity = 0;
   let pairCount = 0;
 
   for (let i = 0; i < wordSets.length; i++) {
     for (let j = i + 1; j < wordSets.length; j++) {
-      const intersection = [...wordSets[i]].filter(w => wordSets[j].has(w));
+      const intersection = [...wordSets[i]].filter((w) => wordSets[j].has(w));
       const union = new Set([...wordSets[i], ...wordSets[j]]);
       const similarity = union.size > 0 ? intersection.length / union.size : 0;
       totalSimilarity += similarity;
@@ -1883,14 +2416,18 @@ export function computeDebateConvergence(debate: DebateState): {
   if (debate.rounds.length >= 2) {
     const prevRound = debate.rounds[debate.rounds.length - 2];
     const prevTexts = prevRound.contributions
-      .filter(c => c.phase === 'rebuttal' || c.phase === 'position')
-      .map(c => c.content.toLowerCase());
-    const prevWordSets = prevTexts.map(t => new Set(t.match(/\b\w{4,}\b/g) ?? []));
+      .filter((c) => c.phase === "rebuttal" || c.phase === "position")
+      .map((c) => c.content.toLowerCase());
+    const prevWordSets = prevTexts.map(
+      (t) => new Set(t.match(/\b\w{4,}\b/g) ?? []),
+    );
     let prevTotal = 0;
     let prevPairs = 0;
     for (let i = 0; i < prevWordSets.length; i++) {
       for (let j = i + 1; j < prevWordSets.length; j++) {
-        const inter = [...prevWordSets[i]].filter(w => prevWordSets[j].has(w));
+        const inter = [...prevWordSets[i]].filter((w) =>
+          prevWordSets[j].has(w),
+        );
         const uni = new Set([...prevWordSets[i], ...prevWordSets[j]]);
         prevTotal += uni.size > 0 ? inter.length / uni.size : 0;
         prevPairs++;
@@ -1900,8 +2437,8 @@ export function computeDebateConvergence(debate: DebateState): {
   }
 
   const delta = currentScore - previousScore;
-  const trending: 'converging' | 'diverging' | 'stable' =
-    delta > 0.05 ? 'converging' : delta < -0.05 ? 'diverging' : 'stable';
+  const trending: "converging" | "diverging" | "stable" =
+    delta > 0.05 ? "converging" : delta < -0.05 ? "diverging" : "stable";
 
   return {
     score: Math.round(currentScore * 1000) / 1000,
@@ -1917,7 +2454,7 @@ export function computeDebateConvergence(debate: DebateState): {
  */
 export function detectDebateSycophancy(debate: DebateState): {
   detected: boolean;
-  score: number;      // 0-1, higher = more sycophantic
+  score: number; // 0-1, higher = more sycophantic
   indicators: string[];
 } {
   if (debate.rounds.length === 0) {
@@ -1930,34 +2467,51 @@ export function detectDebateSycophancy(debate: DebateState): {
   const maxSignals = 5;
 
   // Signal 1: Rebuttal length collapse (rebuttals much shorter than positions)
-  const positions = currentRound.contributions.filter(c => c.phase === 'position');
-  const rebuttals = currentRound.contributions.filter(c => c.phase === 'rebuttal');
+  const positions = currentRound.contributions.filter(
+    (c) => c.phase === "position",
+  );
+  const rebuttals = currentRound.contributions.filter(
+    (c) => c.phase === "rebuttal",
+  );
   if (rebuttals.length > 0 && positions.length > 0) {
-    const avgPosLen = positions.reduce((s, c) => s + c.content.length, 0) / positions.length;
-    const avgRebLen = rebuttals.reduce((s, c) => s + c.content.length, 0) / rebuttals.length;
+    const avgPosLen =
+      positions.reduce((s, c) => s + c.content.length, 0) / positions.length;
+    const avgRebLen =
+      rebuttals.reduce((s, c) => s + c.content.length, 0) / rebuttals.length;
     if (avgRebLen < avgPosLen * 0.3) {
       sycophancySignals++;
-      indicators.push(`Rebuttal collapse: avg rebuttal ${Math.round(avgRebLen)} chars vs avg position ${Math.round(avgPosLen)} chars`);
+      indicators.push(
+        `Rebuttal collapse: avg rebuttal ${Math.round(avgRebLen)} chars vs avg position ${Math.round(avgPosLen)} chars`,
+      );
     }
   }
 
   // Signal 2: Agreement markers without substance
-  const agreementPatterns = /\b(i agree|you're right|good point|fair enough|I concede|valid point|no objection)\b/gi;
-  const substantivePatterns = /\b(however|but|although|despite|nevertheless|in contrast|my concern|the issue)\b/gi;
+  const agreementPatterns =
+    /\b(i agree|you're right|good point|fair enough|I concede|valid point|no objection)\b/gi;
+  const substantivePatterns =
+    /\b(however|but|although|despite|nevertheless|in contrast|my concern|the issue)\b/gi;
   for (const rebuttal of rebuttals) {
     const agreeCount = (rebuttal.content.match(agreementPatterns) ?? []).length;
-    const substantiveCount = (rebuttal.content.match(substantivePatterns) ?? []).length;
+    const substantiveCount = (rebuttal.content.match(substantivePatterns) ?? [])
+      .length;
     if (agreeCount > 2 && substantiveCount === 0) {
       sycophancySignals++;
-      indicators.push(`Hollow agreement in ${rebuttal.slotId}: ${agreeCount} agreement markers, 0 substantive markers`);
+      indicators.push(
+        `Hollow agreement in ${rebuttal.slotId}: ${agreeCount} agreement markers, 0 substantive markers`,
+      );
     }
   }
 
   // Signal 3: Position convergence without critique integration
   // (positions become identical but critiques were soft)
-  const critiques = currentRound.contributions.filter(c => c.phase === 'critique');
-  const softCritiquePatterns = /\b(minor|small|perhaps|maybe|slightly|could consider)\b/gi;
-  const hardCritiquePatterns = /\b(wrong|incorrect|fundamentally|critical|major|flawed|broken|impossible)\b/gi;
+  const critiques = currentRound.contributions.filter(
+    (c) => c.phase === "critique",
+  );
+  const softCritiquePatterns =
+    /\b(minor|small|perhaps|maybe|slightly|could consider)\b/gi;
+  const hardCritiquePatterns =
+    /\b(wrong|incorrect|fundamentally|critical|major|flawed|broken|impossible)\b/gi;
   let softCount = 0;
   let hardCount = 0;
   for (const critique of critiques) {
@@ -1966,34 +2520,50 @@ export function detectDebateSycophancy(debate: DebateState): {
   }
   if (critiques.length > 0 && softCount > hardCount * 3 && hardCount < 2) {
     sycophancySignals++;
-    indicators.push(`Soft critiques: ${softCount} hedging markers vs ${hardCount} substantive markers`);
+    indicators.push(
+      `Soft critiques: ${softCount} hedging markers vs ${hardCount} substantive markers`,
+    );
   }
 
   // Signal 4: Cross-round position drift (positions becoming copies of each other)
   if (debate.rounds.length >= 2) {
     const prevPositions = debate.rounds[debate.rounds.length - 2].contributions
-      .filter(c => c.phase === 'position')
-      .map(c => new Set(c.content.toLowerCase().match(/\b\w{5,}\b/g) ?? []));
-    const currPositions = positions
-      .map(c => new Set(c.content.toLowerCase().match(/\b\w{5,}\b/g) ?? []));
+      .filter((c) => c.phase === "position")
+      .map((c) => new Set(c.content.toLowerCase().match(/\b\w{5,}\b/g) ?? []));
+    const currPositions = positions.map(
+      (c) => new Set(c.content.toLowerCase().match(/\b\w{5,}\b/g) ?? []),
+    );
 
     // Check if positions are converging toward each other's PREVIOUS content
     if (prevPositions.length >= 2 && currPositions.length >= 2) {
       // Check if position 0 now looks more like prev position 1 (copying)
-      const crossSim0to1 = jaccard(currPositions[0], prevPositions[1] ?? new Set());
-      const crossSim1to0 = jaccard(currPositions[1] ?? new Set(), prevPositions[0]);
+      const crossSim0to1 = jaccard(
+        currPositions[0],
+        prevPositions[1] ?? new Set(),
+      );
+      const crossSim1to0 = jaccard(
+        currPositions[1] ?? new Set(),
+        prevPositions[0],
+      );
       if (crossSim0to1 > 0.6 || crossSim1to0 > 0.6) {
         sycophancySignals++;
-        indicators.push(`Position mimicry detected: positions copying each other's prior content`);
+        indicators.push(
+          `Position mimicry detected: positions copying each other's prior content`,
+        );
       }
     }
   }
 
   // Signal 5: "Position unchanged" without defense
   for (const rebuttal of rebuttals) {
-    if (/position unchanged/i.test(rebuttal.content) && rebuttal.content.length < 200) {
+    if (
+      /position unchanged/i.test(rebuttal.content) &&
+      rebuttal.content.length < 200
+    ) {
       sycophancySignals++;
-      indicators.push(`${rebuttal.slotId} claims position unchanged with minimal defense`);
+      indicators.push(
+        `${rebuttal.slotId} claims position unchanged with minimal defense`,
+      );
     }
   }
 
@@ -2007,7 +2577,7 @@ export function detectDebateSycophancy(debate: DebateState): {
 
 /** Jaccard similarity between two sets */
 function jaccard(a: Set<string>, b: Set<string>): number {
-  const inter = [...a].filter(x => b.has(x));
+  const inter = [...a].filter((x) => b.has(x));
   const union = new Set([...a, ...b]);
   return union.size > 0 ? inter.length / union.size : 0;
 }
@@ -2022,34 +2592,38 @@ export function buildDebateEvaluation(
   debate: DebateState,
 ): DebateEvaluation {
   const dominantIdx = scores.reduce(
-    (best, s, i) => s.total > scores[best].total ? i : best, 0
+    (best, s, i) => (s.total > scores[best].total ? i : best),
+    0,
   );
   const dominantScore = scores[dominantIdx];
-  const secondBest = scores.length > 1
-    ? Math.max(...scores.filter((_, i) => i !== dominantIdx).map(s => s.total))
-    : 0;
+  const secondBest =
+    scores.length > 1
+      ? Math.max(
+          ...scores.filter((_, i) => i !== dominantIdx).map((s) => s.total),
+        )
+      : 0;
   const hasClearWinner = dominantScore.total - secondBest >= 2;
 
-  let recommendation: DebateEvaluation['recommendation'];
+  let recommendation: DebateEvaluation["recommendation"];
   let reasoning: string;
 
   if (sycophancy.detected) {
-    recommendation = 'escalate';
-    reasoning = `Sycophancy detected (${(sycophancy.score * 100).toFixed(0)}%). Positions are converging without substantive reasoning. Indicators: ${sycophancy.indicators.join('; ')}`;
+    recommendation = "escalate";
+    reasoning = `Sycophancy detected (${(sycophancy.score * 100).toFixed(0)}%). Positions are converging without substantive reasoning. Indicators: ${sycophancy.indicators.join("; ")}`;
   } else if (convergence.score >= debate.convergenceThreshold) {
-    recommendation = 'converged';
-    reasoning = `Convergence reached ${(convergence.score * 100).toFixed(0)}% (threshold: ${(debate.convergenceThreshold * 100).toFixed(0)}%). ${hasClearWinner ? `Clear strongest position: debater-${dominantIdx}` : 'No dominant position — synthesis needed.'}`;
+    recommendation = "converged";
+    reasoning = `Convergence reached ${(convergence.score * 100).toFixed(0)}% (threshold: ${(debate.convergenceThreshold * 100).toFixed(0)}%). ${hasClearWinner ? `Clear strongest position: debater-${dominantIdx}` : "No dominant position — synthesis needed."}`;
   } else if (debate.currentRound >= debate.maxRounds) {
-    recommendation = 'stalled';
+    recommendation = "stalled";
     reasoning = `Max rounds (${debate.maxRounds}) reached with convergence at ${(convergence.score * 100).toFixed(0)}%. Forcing resolution.`;
-  } else if (convergence.trending === 'diverging') {
-    recommendation = debate.currentRound >= 2 ? 'escalate' : 'continue';
-    reasoning = `Positions are diverging (delta: ${(convergence.delta * 100).toFixed(0)}%). ${debate.currentRound >= 2 ? 'Multiple rounds of divergence — escalation recommended.' : 'One more round may help.'}`;
-  } else if (convergence.trending === 'stable' && debate.currentRound >= 2) {
-    recommendation = 'stalled';
+  } else if (convergence.trending === "diverging") {
+    recommendation = debate.currentRound >= 2 ? "escalate" : "continue";
+    reasoning = `Positions are diverging (delta: ${(convergence.delta * 100).toFixed(0)}%). ${debate.currentRound >= 2 ? "Multiple rounds of divergence — escalation recommended." : "One more round may help."}`;
+  } else if (convergence.trending === "stable" && debate.currentRound >= 2) {
+    recommendation = "stalled";
     reasoning = `No convergence progress after ${debate.currentRound} rounds (stable at ${(convergence.score * 100).toFixed(0)}%).`;
   } else {
-    recommendation = 'continue';
+    recommendation = "continue";
     reasoning = `Convergence at ${(convergence.score * 100).toFixed(0)}%, trending ${convergence.trending}. More rounds may reach threshold.`;
   }
 
@@ -2058,10 +2632,12 @@ export function buildDebateEvaluation(
     convergenceDelta: convergence.delta,
     sycophancyScore: sycophancy.score,
     positionScores: scores,
-    dominantPosition: hasClearWinner ? debate.participants[dominantIdx].slotId : undefined,
+    dominantPosition: hasClearWinner
+      ? debate.participants[dominantIdx].slotId
+      : undefined,
     recommendation,
     reasoning,
-    synthesisReady: recommendation === 'converged',
+    synthesisReady: recommendation === "converged",
   };
 }
 
@@ -2075,7 +2651,7 @@ export function extractClaimsFromPositions(
   debate: DebateState,
   round: DebateRound,
 ): DebateClaim[] {
-  const positions = round.contributions.filter(c => c.phase === 'position');
+  const positions = round.contributions.filter((c) => c.phase === "position");
   const claims: DebateClaim[] = [];
   let claimCounter = debate.claims.length;
 
@@ -2083,14 +2659,18 @@ export function extractClaimsFromPositions(
     // Split position into sentences/statements, filter short noise
     const statements = pos.content
       .split(/(?<=[.!?\n])\s+/)
-      .map(s => s.trim())
-      .filter(s => s.length > 30 && !s.startsWith('#') && !s.startsWith('```'));
+      .map((s) => s.trim())
+      .filter(
+        (s) => s.length > 30 && !s.startsWith("#") && !s.startsWith("```"),
+      );
 
     // Deduplicate: skip if a substantially similar claim already exists
     for (const stmt of statements) {
       const stmtWords = new Set(stmt.toLowerCase().match(/\b\w{5,}\b/g) ?? []);
-      const isDuplicate = claims.some(existing => {
-        const existWords = new Set(existing.text.toLowerCase().match(/\b\w{5,}\b/g) ?? []);
+      const isDuplicate = claims.some((existing) => {
+        const existWords = new Set(
+          existing.text.toLowerCase().match(/\b\w{5,}\b/g) ?? [],
+        );
         return jaccard(stmtWords, existWords) > 0.6;
       });
       if (isDuplicate) continue;
@@ -2101,7 +2681,7 @@ export function extractClaimsFromPositions(
         sourceSlot: pos.slotId,
         agreeSlots: [pos.slotId],
         disagreeSlots: [],
-        status: 'undecided',
+        status: "undecided",
         round: round.roundNumber,
       });
     }
@@ -2118,26 +2698,35 @@ export function updateClaimConsensus(
   debate: DebateState,
   round: DebateRound,
 ): void {
-  const rebuttals = round.contributions.filter(c => c.phase === 'rebuttal');
-  const critiques = round.contributions.filter(c => c.phase === 'critique');
+  const rebuttals = round.contributions.filter((c) => c.phase === "rebuttal");
+  const critiques = round.contributions.filter((c) => c.phase === "critique");
   const allResponses = [...rebuttals, ...critiques];
 
   for (const claim of debate.claims) {
-    const claimWords = new Set(claim.text.toLowerCase().match(/\b\w{5,}\b/g) ?? []);
+    const claimWords = new Set(
+      claim.text.toLowerCase().match(/\b\w{5,}\b/g) ?? [],
+    );
 
     for (const response of allResponses) {
-      if (claim.agreeSlots.includes(response.slotId) || claim.disagreeSlots.includes(response.slotId)) {
+      if (
+        claim.agreeSlots.includes(response.slotId) ||
+        claim.disagreeSlots.includes(response.slotId)
+      ) {
         continue; // Already tracked
       }
 
-      const responseWords = new Set(response.content.toLowerCase().match(/\b\w{5,}\b/g) ?? []);
+      const responseWords = new Set(
+        response.content.toLowerCase().match(/\b\w{5,}\b/g) ?? [],
+      );
       const overlap = jaccard(claimWords, responseWords);
       if (overlap < 0.15) continue; // Not referencing this claim
 
       // Check for agreement or disagreement markers near the claim reference
       const lowerContent = response.content.toLowerCase();
-      const disagreeMarkers = /\b(disagree|wrong|incorrect|flawed|reject|oppose|counter|however|but)\b/gi;
-      const agreeMarkers = /\b(agree|correct|valid|support|endorse|concur|accept)\b/gi;
+      const disagreeMarkers =
+        /\b(disagree|wrong|incorrect|flawed|reject|oppose|counter|however|but)\b/gi;
+      const agreeMarkers =
+        /\b(agree|correct|valid|support|endorse|concur|accept)\b/gi;
       const disagreeCount = (lowerContent.match(disagreeMarkers) ?? []).length;
       const agreeCount = (lowerContent.match(agreeMarkers) ?? []).length;
 
@@ -2152,11 +2741,11 @@ export function updateClaimConsensus(
     const totalParticipants = debate.participants.length;
     const agreeRatio = claim.agreeSlots.length / totalParticipants;
     if (agreeRatio >= 0.7) {
-      claim.status = 'agreed';
+      claim.status = "agreed";
     } else if (claim.disagreeSlots.length > 0) {
-      claim.status = 'contested';
+      claim.status = "contested";
     } else {
-      claim.status = 'undecided';
+      claim.status = "undecided";
     }
   }
 
@@ -2173,9 +2762,9 @@ export function getPartialConsensus(debate: DebateState): {
   undecided: DebateClaim[];
   consensusRatio: number;
 } {
-  const agreed = debate.claims.filter(c => c.status === 'agreed');
-  const contested = debate.claims.filter(c => c.status === 'contested');
-  const undecided = debate.claims.filter(c => c.status === 'undecided');
+  const agreed = debate.claims.filter((c) => c.status === "agreed");
+  const contested = debate.claims.filter((c) => c.status === "contested");
+  const undecided = debate.claims.filter((c) => c.status === "undecided");
   const total = debate.claims.length || 1;
 
   return {
@@ -2199,24 +2788,36 @@ export function checkFastTrack(
   scores: DebatePositionScore[],
 ): { eligible: boolean; reason: string } {
   if (debate.currentRound !== 1) {
-    return { eligible: false, reason: 'Fast-track only applies after Round 1' };
+    return { eligible: false, reason: "Fast-track only applies after Round 1" };
   }
 
   if (convergence.score < debate.convergenceThreshold) {
-    return { eligible: false, reason: `Convergence ${(convergence.score * 100).toFixed(0)}% below threshold ${(debate.convergenceThreshold * 100).toFixed(0)}%` };
+    return {
+      eligible: false,
+      reason: `Convergence ${(convergence.score * 100).toFixed(0)}% below threshold ${(debate.convergenceThreshold * 100).toFixed(0)}%`,
+    };
   }
 
   if (sycophancy.detected) {
-    return { eligible: false, reason: `Sycophancy detected (${(sycophancy.score * 100).toFixed(0)}%) — cannot fast-track` };
+    return {
+      eligible: false,
+      reason: `Sycophancy detected (${(sycophancy.score * 100).toFixed(0)}%) — cannot fast-track`,
+    };
   }
 
-  const lowScores = scores.filter(s => s.total < debate.minPositionScore);
+  const lowScores = scores.filter((s) => s.total < debate.minPositionScore);
   if (lowScores.length > 0) {
-    return { eligible: false, reason: `${lowScores.length} position(s) below minimum score (${debate.minPositionScore}/11)` };
+    return {
+      eligible: false,
+      reason: `${lowScores.length} position(s) below minimum score (${debate.minPositionScore}/11)`,
+    };
   }
 
   debate.fastTrack = true;
-  return { eligible: true, reason: `All conditions met: convergence ${(convergence.score * 100).toFixed(0)}%, no sycophancy, all positions ≥${debate.minPositionScore}/11. Skipping to synthesis.` };
+  return {
+    eligible: true,
+    reason: `All conditions met: convergence ${(convergence.score * 100).toFixed(0)}%, no sycophancy, all positions ≥${debate.minPositionScore}/11. Skipping to synthesis.`,
+  };
 }
 
 // ── Devil's Advocate: Forced Dissent ─────────────────────────────────
@@ -2231,21 +2832,31 @@ export function assignContrarian(
   scores: DebatePositionScore[],
 ): { assigned: boolean; slotId?: string; reason: string } {
   if (debate.contrarian) {
-    return { assigned: false, reason: `Contrarian already assigned: ${debate.contrarian}` };
+    return {
+      assigned: false,
+      reason: `Contrarian already assigned: ${debate.contrarian}`,
+    };
   }
 
   if (debate.currentRound !== 1) {
-    return { assigned: false, reason: 'Contrarian assignment only after Round 1' };
+    return {
+      assigned: false,
+      reason: "Contrarian assignment only after Round 1",
+    };
   }
 
   // Only assign if convergence is suspiciously high but not fast-track eligible
   if (convergence.score < 0.5) {
-    return { assigned: false, reason: 'Positions are sufficiently diverse — no contrarian needed' };
+    return {
+      assigned: false,
+      reason: "Positions are sufficiently diverse — no contrarian needed",
+    };
   }
 
   // Assign the WEAKEST scorer as contrarian (they have least to lose by switching)
   const minScoreIdx = scores.reduce(
-    (min, s, i) => s.total < scores[min].total ? i : min, 0
+    (min, s, i) => (s.total < scores[min].total ? i : min),
+    0,
   );
   const contrarianSlot = debate.participants[minScoreIdx].slotId;
   debate.contrarian = contrarianSlot;
@@ -2268,12 +2879,13 @@ export function buildContrarianPrompt(
 ): string {
   const lastRound = debate.rounds[debate.rounds.length - 1];
   const dominantPosition = lastRound?.evaluation?.dominantPosition;
-  const dominantContent = lastRound?.contributions
-    .filter(c => c.phase === 'position' || c.phase === 'rebuttal')
-    .find(c => c.slotId === dominantPosition)?.content ?? '';
+  const dominantContent =
+    lastRound?.contributions
+      .filter((c) => c.phase === "position" || c.phase === "rebuttal")
+      .find((c) => c.slotId === dominantPosition)?.content ?? "";
 
   const consensus = getPartialConsensus(debate);
-  const agreedClaims = consensus.agreed.map(c => `  - ${c.text}`).join('\n');
+  const agreedClaims = consensus.agreed.map((c) => `  - ${c.text}`).join("\n");
 
   return `You are the DEVIL'S ADVOCATE in this debate. Your job is to STRESS-TEST the emerging consensus.
 
@@ -2287,7 +2899,7 @@ ${session.task}
 ${dominantContent.substring(0, 1000)}
 
 ## AGREED CLAIMS (challenge the weakest of these)
-${agreedClaims || 'No claims formally agreed yet.'}
+${agreedClaims || "No claims formally agreed yet."}
 
 ## YOUR ASSIGNMENT
 Take the STRONGEST POSSIBLE opposing position. This is not about being contrarian for its own sake — it's about finding blind spots.
@@ -2322,16 +2934,20 @@ FORMAT:
  * Create a validation checkpoint for a resolved debate.
  * Called after workers implement the synthesis — enables feedback loop.
  */
-export function createValidationCheckpoint(debate: DebateState): ValidationCheckpoint {
+export function createValidationCheckpoint(
+  debate: DebateState,
+): ValidationCheckpoint {
   if (!debate.synthesis) {
-    throw new Error('Cannot create validation checkpoint: debate has no synthesis');
+    throw new Error(
+      "Cannot create validation checkpoint: debate has no synthesis",
+    );
   }
 
   const checkpoint: ValidationCheckpoint = {
     debateId: debate.id,
     synthesis: debate.synthesis,
     submittedAt: Date.now(),
-    outcome: 'pending',
+    outcome: "pending",
     findings: [],
   };
 
@@ -2346,9 +2962,13 @@ export function createValidationCheckpoint(debate: DebateState): ValidationCheck
 export function submitValidation(
   session: SwarmSession,
   debate: DebateState,
-  outcome: 'confirmed' | 'failed' | 'partial',
+  outcome: "confirmed" | "failed" | "partial",
   findings: string[],
-): { checkpoint: ValidationCheckpoint; reopened: boolean; newDebateId?: string } {
+): {
+  checkpoint: ValidationCheckpoint;
+  reopened: boolean;
+  newDebateId?: string;
+} {
   if (!debate.validation) {
     debate.validation = createValidationCheckpoint(debate);
   }
@@ -2360,13 +2980,13 @@ export function submitValidation(
   let reopened = false;
   let newDebateId: string | undefined;
 
-  if (outcome === 'failed' || outcome === 'partial') {
+  if (outcome === "failed" || outcome === "partial") {
     // Reopen debate with new evidence
-    const newTopic = `[REOPENED] ${debate.topic} — validation ${outcome}: ${findings.slice(0, 2).join('; ')}`;
+    const newTopic = `[REOPENED] ${debate.topic} — validation ${outcome}: ${findings.slice(0, 2).join("; ")}`;
     const newDebate = createDebate(
       session,
       newTopic,
-      'disagreement',
+      "disagreement",
       debate.groupId,
       debate.participants.length,
       2, // Fewer rounds for reopened debates — we have more context now
@@ -2394,12 +3014,14 @@ export function claimFiles(
   const conflicts: Array<{ path: string; owner: string }> = [];
 
   for (const path of paths) {
-    const existing = session.claims.find(c => c.path === path && !c.released);
+    const existing = session.claims.find((c) => c.path === path && !c.released);
     if (existing && existing.claimedBy !== claimedBy) {
       conflicts.push({ path, owner: existing.claimedBy });
     } else {
       // Claim or re-claim
-      const existingOwn = session.claims.find(c => c.path === path && c.claimedBy === claimedBy);
+      const existingOwn = session.claims.find(
+        (c) => c.path === path && c.claimedBy === claimedBy,
+      );
       if (!existingOwn || existingOwn.released) {
         session.claims.push({
           path,
@@ -2423,7 +3045,9 @@ export function releaseFiles(
 ): string[] {
   const released: string[] = [];
   for (const path of paths) {
-    const claim = session.claims.find(c => c.path === path && c.claimedBy === claimedBy && !c.released);
+    const claim = session.claims.find(
+      (c) => c.path === path && c.claimedBy === claimedBy && !c.released,
+    );
     if (claim) {
       claim.released = true;
       released.push(path);
@@ -2437,30 +3061,44 @@ export function checkFileClaims(
   paths: string[],
 ): Array<{ path: string; claimedBy: string; groupId: string }> {
   return paths
-    .map(path => {
-      const claim = session.claims.find(c => c.path === path && !c.released);
-      return claim ? { path, claimedBy: claim.claimedBy, groupId: claim.groupId } : null;
+    .map((path) => {
+      const claim = session.claims.find((c) => c.path === path && !c.released);
+      return claim
+        ? { path, claimedBy: claim.claimedBy, groupId: claim.groupId }
+        : null;
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
 }
 
-export function getClaimsForWorkstream(session: SwarmSession, workstreamId: string): FileClaim[] {
-  return session.claims.filter(c => c.claimedBy === workstreamId && !c.released);
+export function getClaimsForWorkstream(
+  session: SwarmSession,
+  workstreamId: string,
+): FileClaim[] {
+  return session.claims.filter(
+    (c) => c.claimedBy === workstreamId && !c.released,
+  );
 }
 
 export function getAllActiveClaims(session: SwarmSession): FileClaim[] {
-  return session.claims.filter(c => !c.released);
+  return session.claims.filter((c) => !c.released);
 }
 
 // ── Anti-Drift Detection ──────────────────────────────────────────────
 // Compare worker output against original assignment to detect goal drift.
 
-export function checkDrift(
-  taskGoal: string,
-  output: string,
-): DriftCheck {
-  const goalTokens = new Set(taskGoal.toLowerCase().split(/\s+/).filter(t => t.length > 3));
-  const outputTokens = new Set(output.toLowerCase().split(/\s+/).filter(t => t.length > 3));
+export function checkDrift(taskGoal: string, output: string): DriftCheck {
+  const goalTokens = new Set(
+    taskGoal
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length > 3),
+  );
+  const outputTokens = new Set(
+    output
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length > 3),
+  );
 
   // Measure how many goal keywords appear in output
   let overlap = 0;
@@ -2473,31 +3111,81 @@ export function checkDrift(
 
   // Check for common drift indicators
   if (alignmentScore < 0.3) {
-    driftSignals.push('Output has very low keyword overlap with original task');
+    driftSignals.push("Output has very low keyword overlap with original task");
   }
 
   // Check if output is suspiciously short
   if (output.length < taskGoal.length * 0.5 && output.length < 200) {
-    driftSignals.push('Output is much shorter than expected for the task scope');
+    driftSignals.push(
+      "Output is much shorter than expected for the task scope",
+    );
   }
 
   // Check for scope creep signals
-  const scopeCreepPatterns = /\b(also|additionally|while I was at it|bonus|extra|unrelated)\b/gi;
+  const scopeCreepPatterns =
+    /\b(also|additionally|while I was at it|bonus|extra|unrelated)\b/gi;
   const scopeMatches = output.match(scopeCreepPatterns);
   if (scopeMatches && scopeMatches.length >= 2) {
-    driftSignals.push(`Possible scope creep detected (${scopeMatches.length} tangential markers)`);
+    driftSignals.push(
+      `Possible scope creep detected (${scopeMatches.length} tangential markers)`,
+    );
   }
 
   // Summarize output (first 200 chars)
-  const outputSummary = output.substring(0, 200) + (output.length > 200 ? '...' : '');
+  const outputSummary =
+    output.substring(0, 200) + (output.length > 200 ? "..." : "");
 
   return { taskGoal, outputSummary, alignmentScore, driftSignals };
 }
 
 // ── Pattern Memory ────────────────────────────────────────────────────
 // Store and retrieve successful patterns for worker reuse.
+// Patterns persist to disk so they survive server restarts.
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const DATA_DIR = join(__dirname, "..", "data");
+const PATTERNS_FILE = join(DATA_DIR, "patterns.json");
 
 let patternCounter = 0;
+
+// Global pattern store (shared across sessions)
+let globalPatterns: PatternEntry[] = [];
+
+export function loadPatterns(): void {
+  try {
+    if (existsSync(PATTERNS_FILE)) {
+      const raw = readFileSync(PATTERNS_FILE, "utf-8");
+      globalPatterns = JSON.parse(raw) as PatternEntry[];
+      // Restore counter from highest existing ID
+      for (const p of globalPatterns) {
+        const match = p.id.match(/pattern-(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > patternCounter) patternCounter = num;
+        }
+      }
+    }
+  } catch {
+    globalPatterns = [];
+  }
+}
+
+function savePatterns(): void {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(
+      PATTERNS_FILE,
+      JSON.stringify(globalPatterns, null, 2),
+      "utf-8",
+    );
+  } catch {
+    // Silent fail — disk persistence is best-effort
+  }
+}
+
+// Load on module init
+loadPatterns();
 
 export function storePattern(
   session: SwarmSession,
@@ -2520,6 +3208,9 @@ export function storePattern(
     sessionId: session.id,
   };
   session.patterns.push(entry);
+  // Persist to global store
+  globalPatterns.push(entry);
+  savePatterns();
   return entry;
 }
 
@@ -2528,11 +3219,16 @@ export function searchPatterns(
   query: string,
   limit: number = 5,
 ): PatternEntry[] {
-  const queryTokens = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  const queryTokens = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
 
-  // Score each pattern by keyword match
-  const scored = session.patterns.map(p => {
-    const searchable = [p.taskType, p.approach, ...p.tags, ...p.keyDecisions].join(' ').toLowerCase();
+  // Search global patterns (cross-session), not just current session
+  const scored = globalPatterns.map((p) => {
+    const searchable = [p.taskType, p.approach, ...p.tags, ...p.keyDecisions]
+      .join(" ")
+      .toLowerCase();
     let score = 0;
     for (const token of queryTokens) {
       if (searchable.includes(token)) score++;
@@ -2541,26 +3237,29 @@ export function searchPatterns(
   });
 
   return scored
-    .filter(s => s.score > 0)
-    .sort((a, b) => b.score - a.score || b.pattern.qualityScore - a.pattern.qualityScore)
+    .filter((s) => s.score > 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score || b.pattern.qualityScore - a.pattern.qualityScore,
+    )
     .slice(0, limit)
-    .map(s => s.pattern);
+    .map((s) => s.pattern);
 }
 
 export function buildPatternContext(patterns: PatternEntry[]): string {
-  if (patterns.length === 0) return '';
-  const lines = ['', '--- RELEVANT PATTERNS FROM PRIOR TASKS ---'];
+  if (patterns.length === 0) return "";
+  const lines = ["", "--- RELEVANT PATTERNS FROM PRIOR TASKS ---"];
   for (const p of patterns) {
     lines.push(`[${p.taskType}] Score: ${p.qualityScore}/10`);
     lines.push(`  Approach: ${p.approach}`);
     if (p.keyDecisions.length > 0) {
-      lines.push(`  Key decisions: ${p.keyDecisions.join('; ')}`);
+      lines.push(`  Key decisions: ${p.keyDecisions.join("; ")}`);
     }
-    lines.push(`  Files: ${p.filesInvolved.join(', ')}`);
-    lines.push('');
+    lines.push(`  Files: ${p.filesInvolved.join(", ")}`);
+    lines.push("");
   }
-  lines.push('--- END PATTERNS ---');
-  return lines.join('\n');
+  lines.push("--- END PATTERNS ---");
+  return lines.join("\n");
 }
 
 // ── Worker Consensus Protocol ─────────────────────────────────────────
@@ -2579,15 +3278,18 @@ export function createConsensus(
     groupId,
     topic,
     proposals: [],
-    status: 'collecting',
+    status: "collecting",
     createdAt: Date.now(),
   };
   session.consensuses.push(consensus);
   return consensus;
 }
 
-export function getConsensus(session: SwarmSession, id: string): ConsensusState | undefined {
-  return session.consensuses.find(c => c.id === id);
+export function getConsensus(
+  session: SwarmSession,
+  id: string,
+): ConsensusState | undefined {
+  return session.consensuses.find((c) => c.id === id);
 }
 
 export function submitProposal(
@@ -2612,15 +3314,21 @@ export function submitProposal(
  */
 export function evaluateConsensus(consensus: ConsensusState): {
   convergenceScore: number;
-  recommendation: 'implement-best' | 'debate' | 'need-more-proposals';
+  recommendation: "implement-best" | "debate" | "need-more-proposals";
 } {
   if (consensus.proposals.length < 2) {
-    return { convergenceScore: 0, recommendation: 'need-more-proposals' };
+    return { convergenceScore: 0, recommendation: "need-more-proposals" };
   }
 
   // Tokenize each proposal
-  const tokenSets = consensus.proposals.map(p =>
-    new Set(p.content.toLowerCase().split(/\s+/).filter(t => t.length > 3))
+  const tokenSets = consensus.proposals.map(
+    (p) =>
+      new Set(
+        p.content
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((t) => t.length > 3),
+      ),
   );
 
   // Compute average pairwise Jaccard similarity
@@ -2628,7 +3336,9 @@ export function evaluateConsensus(consensus: ConsensusState): {
   let pairs = 0;
   for (let i = 0; i < tokenSets.length; i++) {
     for (let j = i + 1; j < tokenSets.length; j++) {
-      const intersection = [...tokenSets[i]].filter(t => tokenSets[j].has(t)).length;
+      const intersection = [...tokenSets[i]].filter((t) =>
+        tokenSets[j].has(t),
+      ).length;
       const union = new Set([...tokenSets[i], ...tokenSets[j]]).size;
       totalSim += union > 0 ? intersection / union : 0;
       pairs++;
@@ -2638,9 +3348,9 @@ export function evaluateConsensus(consensus: ConsensusState): {
   consensus.convergenceScore = convergenceScore;
 
   if (convergenceScore >= 0.6) {
-    consensus.status = 'decided';
-    return { convergenceScore, recommendation: 'implement-best' };
+    consensus.status = "decided";
+    return { convergenceScore, recommendation: "implement-best" };
   } else {
-    return { convergenceScore, recommendation: 'debate' };
+    return { convergenceScore, recommendation: "debate" };
   }
 }

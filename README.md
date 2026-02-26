@@ -964,6 +964,128 @@ sequenceDiagram
 
 ---
 
+## 🏭 L3 Worker Architecture (v16.0)
+
+### Worker Lifecycle
+
+```
+L2 Manager receives assignment from L1
+     │
+     ▼
+1. classifyTaskComplexity(task) → trivial | standard | complex | review
+     │
+     ▼
+2. inferWorkerRole(task) → coder | tester | security | architect | documenter | debugger
+     │
+     ▼
+3. getModelForComplexity(complexity) → fast | coder | premium | critic model pool
+     │
+     ▼
+4. getRoleAgentName(role) → "worker-coder" | "worker-tester" | ...
+     │
+     ▼
+5. task(subagent_type=agentName, prompt=rolePrompt + taskDetails)
+     │
+     ▼
+6. Worker boots → reads role-specific system prompt (.md file)
+     │
+     ▼
+7. Worker executes task with full file tools (read, write, edit, bash, grep, glob)
+     │
+     ▼
+8. Worker returns structured summary to L2 manager
+     │
+     ▼
+9. Worker session terminates (stateless — no persistence between spawns)
+```
+
+### Tool Permission Matrix
+
+```
+                    L1 Orchestrator    L2 Manager    L3 Worker
+                    ──────────────    ──────────    ─────────
+File write/edit     ❌                ✅            ✅
+bash                ✅                ✅            ✅
+task() (spawn)      ✅                ✅            ✅ (depth-limited)
+glob/grep/view      ❌                ✅            ✅
+MCP tools (16)      ✅                ❌            ❌
+```
+
+**Why L1 has no file tools:** Forces delegation. The orchestrator never writes code.
+**Why L3 has no MCP tools:** Workers don't orchestrate. They execute.
+
+### Sub-Agent Delegation (Depth-Limited)
+
+Workers can spawn sub-agents for parallelism, up to a depth limit:
+
+```
+L1 (orchestrator) → L2 (manager) → L3 (worker) → L4 (sub-worker)
+                                                      ↑
+                                              DEPTH LIMIT = 3
+                                              L4 CANNOT spawn L5
+```
+
+Rules:
+- Use a **different provider** than yourself (cognitive diversity)
+- Pass **anonymous context** (don't reveal your own approach)
+- Sub-agents cannot spawn further sub-agents
+- Only use when genuine parallelism benefit exists
+
+### Dynamic Agent Spawning
+
+The full invocation chain from `/swarm` to worker execution:
+
+```
+MCP Server: swarm_next(sessionId)
+     │
+     ▼ Returns managerCalls with:
+     │   subagent_type, promptRef, groupId, workerCount, workstreams
+     │
+L1: swarm_dispatch(sessionId, promptRef, subagent_type, description)
+     │
+     ▼ MCP resolves promptRef → full prompt text
+     │
+L1: task(subagent_type="manager-anthropic", prompt=<resolved>)
+     │
+     ▼ L2 Manager boots, reads assignment
+     │
+L2: Plans subtasks, selects worker roles
+     │
+     ├── task(subagent_type="worker-coder", prompt="Implement auth...")
+     ├── task(subagent_type="worker-tester", prompt="Write tests...")
+     └── task(subagent_type="worker-security", prompt="Audit auth...")
+           │
+           ▼ Workers execute in parallel
+           │
+L2: Collects outputs, synthesizes report → returns to L1
+```
+
+### Creating a New Worker Role
+
+See [`docs/agent-definition-guide.md`](docs/agent-definition-guide.md) for the complete guide. Quick steps:
+
+1. Create `opencode/agents/worker-<role>.md` with YAML frontmatter (mode: subagent, tools, system prompt)
+2. Register in `opencode/opencode.json` under the `agent` section
+3. Update `getRoleAgentName()` in `mcp-server/src/state.ts` to map the role
+4. Build: `cd mcp-server && npm run build`
+
+### Persistent Pattern Memory (v16.0)
+
+Patterns now survive MCP server restarts via `mcp-server/src/persistence.ts`:
+- **SQLite backend** (preferred, Node 22.5+): stores in `mcp-server/data/patterns.db`
+- **JSON fallback**: stores in `mcp-server/data/patterns.json`
+- Patterns are saved after successful quality gates and loaded on server start
+
+### Anti-Drift Enforcement (v16.0)
+
+`handleSwarmSubmit()` now calls `checkDrift()` on every submission:
+- Compares output alignment against the original task assignment
+- Configurable threshold (default: 0.6 alignment score)
+- On drift detection: rejects submission with feedback, worker retries
+- Uses structural analysis (keyword overlap, length ratio, section matching)
+
+---
+
 ## 🔒 Parallel Safety
 
 ```

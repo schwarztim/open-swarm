@@ -88,14 +88,17 @@ import {
   getConsensus,
   submitProposal,
   evaluateConsensus,
-} from './state.js';
+} from "./state.js";
+
+// Anti-drift configuration
+const DRIFT_THRESHOLD = 0.4; // Reject submissions below this alignment score (0-1)
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
 type ToolResult = { content: Array<{ type: string; text: string }> };
 
 function ok(data: unknown): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
 }
 
 function err(message: string): ToolResult {
@@ -130,14 +133,16 @@ function computeConvergence(
   currentRound: number,
   currentScores: Array<{ workstream: string; score: number }>,
 ) {
-  const avgCurrent = currentScores.reduce((s, c) => s + c.score, 0) / currentScores.length;
+  const avgCurrent =
+    currentScores.reduce((s, c) => s + c.score, 0) / currentScores.length;
 
   // Find previous round scores
   const prevRound = currentRound - 1;
   const prevScores = session.rounds.filter((r) => r.round === prevRound);
-  const avgPrev = prevScores.length > 0
-    ? prevScores.reduce((s, r) => s + r.score, 0) / prevScores.length
-    : 0;
+  const avgPrev =
+    prevScores.length > 0
+      ? prevScores.reduce((s, r) => s + r.score, 0) / prevScores.length
+      : 0;
 
   const delta = prevScores.length > 0 ? avgCurrent - avgPrev : avgCurrent;
   const stalling = prevScores.length > 0 && Math.abs(delta) < 0.5;
@@ -147,7 +152,10 @@ function computeConvergence(
   const allRounds = new Set(session.rounds.map((r) => r.round));
   for (const r of allRounds) {
     const scores = session.rounds.filter((s) => s.round === r);
-    roundAvgs.push({ round: r, avg: scores.reduce((s, c) => s + c.score, 0) / scores.length });
+    roundAvgs.push({
+      round: r,
+      avg: scores.reduce((s, c) => s + c.score, 0) / scores.length,
+    });
   }
   roundAvgs.push({ round: currentRound, avg: avgCurrent });
   roundAvgs.sort((a, b) => a.round - b.round);
@@ -157,7 +165,9 @@ function computeConvergence(
     previousAvg: prevScores.length > 0 ? Math.round(avgPrev * 100) / 100 : null,
     delta: Math.round(delta * 100) / 100,
     stalling,
-    stallingWarning: stalling ? 'Quality improvement < 0.5 across rounds. Consider changing approach or models.' : undefined,
+    stallingWarning: stalling
+      ? "Quality improvement < 0.5 across rounds. Consider changing approach or models."
+      : undefined,
     trend: roundAvgs,
     totalRounds: currentRound,
   };
@@ -170,10 +180,10 @@ export function handleSwarmInit(args: {
   tier?: Tier;
   fileCount?: number;
   executionMode?: ExecutionMode;
-  concurrency?: number | string;  // number or preset name
+  concurrency?: number | string; // number or preset name
 }): ToolResult {
   const { task, fileCount } = args;
-  if (!task) return err('Missing required field: task');
+  if (!task) return err("Missing required field: task");
 
   const tier = args.tier ?? selectTier(task, fileCount);
 
@@ -181,22 +191,30 @@ export function handleSwarmInit(args: {
   let resolvedConcurrency: number;
   if (args.concurrency === undefined || args.concurrency === null) {
     resolvedConcurrency = resolveRateLimit(undefined);
-  } else if (typeof args.concurrency === 'string' && args.concurrency in RATE_PRESETS) {
+  } else if (
+    typeof args.concurrency === "string" &&
+    args.concurrency in RATE_PRESETS
+  ) {
     resolvedConcurrency = resolveRateLimit(args.concurrency as RatePreset);
   } else {
     resolvedConcurrency = resolveRateLimit(Number(args.concurrency));
   }
 
-  const session = createSession(tier, task, args.executionMode, resolvedConcurrency);
+  const session = createSession(
+    tier,
+    task,
+    args.executionMode,
+    resolvedConcurrency,
+  );
   const phaseDefs = TIER_PHASES[tier];
 
   // Seed default workstreams for parallel tiers
   const hasParallel = phaseDefs.some((p) => p.parallel);
   if (hasParallel && session.workstreams.length === 0) {
     let count = 2;
-    if (tier === 'unleashed') count = 32;
-    else if (tier === 'blitz' || (fileCount && fileCount > 20)) count = 4;
-    
+    if (tier === "unleashed") count = 32;
+    else if (tier === "blitz" || (fileCount && fileCount > 20)) count = 4;
+
     for (let i = 0; i < count; i++) {
       session.workstreams.push({
         id: `ws-${i}`,
@@ -204,19 +222,24 @@ export function handleSwarmInit(args: {
         files: [],
         modelAssigned: getCoderModel(i),
         dependencies: [],
-        status: 'ready',
+        status: "ready",
       });
     }
   }
 
   // Build rate limit info for response
-  const matchedPreset = Object.entries(RATE_PRESETS).find(([_, v]) => v.concurrency === resolvedConcurrency);
+  const matchedPreset = Object.entries(RATE_PRESETS).find(
+    ([_, v]) => v.concurrency === resolvedConcurrency,
+  );
   const rateLimitInfo = {
-    concurrency: resolvedConcurrency > 0 ? resolvedConcurrency : 'unlimited',
-    preset: matchedPreset ? matchedPreset[0] : 'custom',
-    maxEstimatedAgents: resolvedConcurrency > 0 ? resolvedConcurrency * 5 : 'unlimited',
-    description: matchedPreset ? matchedPreset[1].description : `Custom: ${resolvedConcurrency} concurrent L2 managers`,
-    recommendedPlan: matchedPreset ? matchedPreset[1].plan : 'depends on usage',
+    concurrency: resolvedConcurrency > 0 ? resolvedConcurrency : "unlimited",
+    preset: matchedPreset ? matchedPreset[0] : "custom",
+    maxEstimatedAgents:
+      resolvedConcurrency > 0 ? resolvedConcurrency * 5 : "unlimited",
+    description: matchedPreset
+      ? matchedPreset[1].description
+      : `Custom: ${resolvedConcurrency} concurrent L2 managers`,
+    recommendedPlan: matchedPreset ? matchedPreset[1].plan : "depends on usage",
   };
 
   return ok({
@@ -227,9 +250,13 @@ export function handleSwarmInit(args: {
     executionMode: session.executionMode,
     rateLimit: rateLimitInfo,
     availablePresets: Object.fromEntries(
-      Object.entries(RATE_PRESETS).map(([k, v]) => [k, { concurrency: v.concurrency, agents: v.maxAgents, plan: v.plan }])
+      Object.entries(RATE_PRESETS).map(([k, v]) => [
+        k,
+        { concurrency: v.concurrency, agents: v.maxAgents, plan: v.plan },
+      ]),
     ),
-    outputDir: session.executionMode === 'subprocess' ? session.outputDir : undefined,
+    outputDir:
+      session.executionMode === "subprocess" ? session.outputDir : undefined,
     nextAction: `Call swarm_next with sessionId "${session.id}" to get the first task.`,
   });
 }
@@ -246,14 +273,14 @@ export function handleSwarmNext(args: {
   // Auto-advance past completed phases
   while (
     session.currentPhaseIndex < session.phases.length &&
-    session.phases[session.currentPhaseIndex].status === 'done'
+    session.phases[session.currentPhaseIndex].status === "done"
   ) {
     const nextIdx = session.currentPhaseIndex + 1;
     if (nextIdx >= session.phases.length) {
       return ok({
         sessionId: session.id,
         complete: true,
-        nextAction: 'All phases complete. Swarm finished.',
+        nextAction: "All phases complete. Swarm finished.",
       });
     }
     session.currentPhaseIndex = nextIdx;
@@ -265,8 +292,14 @@ export function handleSwarmNext(args: {
   const history = buildAnonymousHistory(session);
 
   // ── Subprocess mode ──
-  if (session.executionMode === 'subprocess') {
-    return handleSwarmNextSubprocess(session, phaseDef, phase, phaseIdx, history);
+  if (session.executionMode === "subprocess") {
+    return handleSwarmNextSubprocess(
+      session,
+      phaseDef,
+      phase,
+      phaseIdx,
+      history,
+    );
   }
 
   // ── Task mode with 3-tier hierarchy ──
@@ -274,18 +307,25 @@ export function handleSwarmNext(args: {
   // Each L2 manager spawns its own L3 workers via task()
   if (phaseDef.parallel) {
     // Create agent groups if not yet done for this phase
-    if (session.agentGroups.length === 0 || session.agentGroups.every(g => g.status === 'done')) {
+    if (
+      session.agentGroups.length === 0 ||
+      session.agentGroups.every((g) => g.status === "done")
+    ) {
       groupWorkstreams(session);
     }
 
     // Count in-flight managers (dispatched but not done)
-    const inFlight = session.agentGroups.filter(g => g.status === 'dispatched').length;
+    const inFlight = session.agentGroups.filter(
+      (g) => g.status === "dispatched",
+    ).length;
     const limit = session.concurrency > 0 ? session.concurrency : Infinity;
     const availableSlots = Math.max(0, limit - inFlight);
 
     // If concurrency is saturated, tell the orchestrator to wait
     if (availableSlots === 0) {
-      const dispatched = session.agentGroups.filter(g => g.status === 'dispatched');
+      const dispatched = session.agentGroups.filter(
+        (g) => g.status === "dispatched",
+      );
       const statusBoard = `${session.outputDir}/status-board.md`;
       return ok({
         sessionId: session.id,
@@ -295,7 +335,7 @@ export function handleSwarmNext(args: {
         rateLimited: true,
         concurrency: session.concurrency,
         inFlight,
-        waitingFor: dispatched.map(g => g.id),
+        waitingFor: dispatched.map((g) => g.id),
         statusBoard,
         nextAction: [
           `⏳ Rate limit: ${session.concurrency} concurrent managers max, ${inFlight} in-flight.`,
@@ -303,19 +343,24 @@ export function handleSwarmNext(args: {
           `After submitting, call swarm_next again to dispatch the next wave.`,
           ``,
           `Monitor progress: bash("cat ${statusBoard} 2>/dev/null || echo 'Waiting...'")`,
-        ].join('\n'),
+        ].join("\n"),
       });
     }
 
     // Release only up to the concurrency limit
-    const pending = session.agentGroups.filter(g => g.status === 'pending');
+    const pending = session.agentGroups.filter((g) => g.status === "pending");
     const toDispatch = pending.slice(0, availableSlots);
     const managerCalls = [];
 
     for (const group of toDispatch) {
-      const managerPrompt = buildManagerPrompt(session, group, phaseDef.name, history);
+      const managerPrompt = buildManagerPrompt(
+        session,
+        group,
+        phaseDef.name,
+        history,
+      );
       const promptRef = storePrompt(session, managerPrompt);
-      group.status = 'dispatched';
+      group.status = "dispatched";
 
       managerCalls.push({
         subagent_type: group.managerAgent,
@@ -324,33 +369,36 @@ export function handleSwarmNext(args: {
         model: group.managerModel, // resolved through fallback system
         groupId: group.id,
         workerCount: group.workerSlots.length,
-        workstreams: group.workerSlots.map(ws => ws.workstreamId),
+        workstreams: group.workerSlots.map((ws) => ws.workstreamId),
       });
     }
 
-    const remainingPending = session.agentGroups.filter(g => g.status === 'pending').length;
+    const remainingPending = session.agentGroups.filter(
+      (g) => g.status === "pending",
+    ).length;
     const totalGroups = session.agentGroups.length;
 
-    phase.status = 'in_progress';
+    phase.status = "in_progress";
     const statusBoard = `${session.outputDir}/status-board.md`;
     return ok({
       sessionId: session.id,
       phase: phaseDef.name,
       phaseIndex: phaseIdx,
       parallel: true,
-      hierarchy: 'L1 → L2 managers → L3 workers',
+      hierarchy: "L1 → L2 managers → L3 workers",
       wave: {
         dispatching: managerCalls.length,
         inFlight: inFlight + managerCalls.length,
         remaining: remainingPending,
         total: totalGroups,
-        concurrency: session.concurrency > 0 ? session.concurrency : 'unlimited',
+        concurrency:
+          session.concurrency > 0 ? session.concurrency : "unlimited",
       },
       totalWorkers: session.workstreams.length,
       statusBoard,
       managerCalls,
       nextAction: [
-        `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ''}. For EACH managerCall:`,
+        `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ""}. For EACH managerCall:`,
         `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=managerCall.promptRef, subagent_type=managerCall.subagent_type, description=managerCall.description, model=managerCall.model)`,
         `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt, model=result.model)`,
         ``,
@@ -364,8 +412,10 @@ export function handleSwarmNext(args: {
         `  6. Call swarm_relay to post cross-team findings for the next group`,
         remainingPending > 0
           ? `  7. Call swarm_next again — the server will release the next wave of managers.`
-          : '',
-      ].filter(Boolean).join('\n'),
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     });
   }
 
@@ -373,7 +423,7 @@ export function handleSwarmNext(args: {
   const prompt = `${history}\n\nExecute the "${phaseDef.name}" phase for this task.`;
   const desc = `${phaseDef.name} phase`;
   const taskCall = buildTaskCall(session, phaseDef, desc, prompt);
-  phase.status = 'in_progress';
+  phase.status = "in_progress";
 
   return ok({
     sessionId: session.id,
@@ -403,9 +453,9 @@ function handleSwarmNextSubprocess(
       const model = getCoderModel(i);
       const agentName = getWorkerAgentName(model);
       const wsContext = ws
-        ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(', ') || 'TBD'}`
+        ? `\nWorkstream: ${ws.id} — ${ws.description}\nFiles: ${ws.files.join(", ") || "TBD"}`
         : `\nWorkstream: ws-${i}`;
-      const boardCtx = ws ? buildBoardContext(session, ws.id) : '';
+      const boardCtx = ws ? buildBoardContext(session, ws.id) : "";
       const prompt = `${history}${boardCtx}\n\n--- WORKSTREAM CONTEXT ---${wsContext}\n\nExecute the "${phaseDef.name}" phase for this workstream. You are running as an independent subprocess — complete your work fully, do not wait for other agents.`;
 
       const promptFile = `${outputDir}/ws-${i}-prompt.md`;
@@ -430,13 +480,13 @@ function handleSwarmNextSubprocess(
       });
     }
 
-    phase.status = 'in_progress';
+    phase.status = "in_progress";
     return ok({
       sessionId: session.id,
       phase: phaseDef.name,
       phaseIndex: phaseIdx,
       parallel: true,
-      executionMode: 'subprocess',
+      executionMode: "subprocess",
       workstreamCount: wsCount,
       spawnCommands,
       nextAction: `Create output directory: mkdir -p ${outputDir}\nThen for EACH spawn command:\n1. Write the prompt file\n2. Execute the command via bash(mode="async", detach=true)\nWhen ALL processes complete (check log files/output files), call swarm_collect with the outputs.`,
@@ -451,13 +501,13 @@ function handleSwarmNextSubprocess(
   const outputFile = `${outputDir}/phase-${phaseIdx}-output.md`;
   const logFile = `${outputDir}/phase-${phaseIdx}-log.txt`;
 
-  phase.status = 'in_progress';
+  phase.status = "in_progress";
   return ok({
     sessionId: session.id,
     phase: phaseDef.name,
     phaseIndex: phaseIdx,
     parallel: false,
-    executionMode: 'subprocess',
+    executionMode: "subprocess",
     spawnCommand: {
       model,
       agent: agentName,
@@ -486,40 +536,62 @@ export function handleSwarmSubmit(args: {
   const phase = session.phases[phaseIdx];
   const phaseDef = getPhaseDefinition(session, phaseIdx);
 
-  if (phase.status !== 'in_progress') {
-    return err(`Phase "${phase.name}" is "${phase.status}", expected "in_progress".`);
+  if (phase.status !== "in_progress") {
+    return err(
+      `Phase "${phase.name}" is "${phase.status}", expected "in_progress".`,
+    );
   }
 
   // Store output
   phase.outputs.push(args.output);
   if (args.agentId) phase.agentIds.push(args.agentId);
 
+  // ── Anti-drift enforcement ──────────────────────────────────────────
+  // Check if output aligns with the original task goal.
+  const taskGoal = session.task;
+  const drift = checkDrift(taskGoal, args.output);
+
+  if (drift.alignmentScore < DRIFT_THRESHOLD) {
+    // Remove the output we just pushed — it drifted too far
+    phase.outputs.pop();
+    if (args.agentId) phase.agentIds.pop();
+
+    return err(
+      `⚠️ Submission rejected — output drifted from task goal.\n` +
+        `Alignment: ${(drift.alignmentScore * 100).toFixed(0)}% (threshold: ${(DRIFT_THRESHOLD * 100).toFixed(0)}%)\n` +
+        `Drift signals:\n${drift.driftSignals.map((s) => `  • ${s}`).join("\n")}\n` +
+        `\nOriginal task: "${taskGoal.substring(0, 200)}..."\n` +
+        `\nPlease revise the output to address the original task goal and resubmit.`,
+    );
+  }
+
   // Track L2 manager group completion
   const groupIndex = phase.outputs.length - 1;
   const group = session.agentGroups[groupIndex];
   if (group) {
-    group.status = 'done';
+    group.status = "done";
     group.report = args.output;
     // Post L2 report to board at group level
-    postToBoard(session, group.id, 'report', args.output, 'L2', group.id);
+    postToBoard(session, group.id, "report", args.output, "L2", group.id);
     // Mark all workstreams in this group as done
     for (const slot of group.workerSlots) {
-      const ws = session.workstreams.find(w => w.id === slot.workstreamId);
-      if (ws) ws.status = 'done';
+      const ws = session.workstreams.find((w) => w.id === slot.workstreamId);
+      if (ws) ws.status = "done";
     }
   } else {
     // Non-grouped submit (single-task phases)
     const wsIndex = phase.outputs.length - 1;
     const ws = session.workstreams[wsIndex];
     const wsId = ws?.id ?? `ws-${wsIndex}`;
-    postToBoard(session, wsId, 'finding', args.output);
-    if (ws) ws.status = 'done';
+    postToBoard(session, wsId, "finding", args.output);
+    if (ws) ws.status = "done";
   }
 
   // Add anonymized history entry
-  const currentRound = session.rounds.length > 0
-    ? Math.max(...session.rounds.map((r) => r.round))
-    : 1;
+  const currentRound =
+    session.rounds.length > 0
+      ? Math.max(...session.rounds.map((r) => r.round))
+      : 1;
   session.history.push({
     round: currentRound,
     phase: phase.name,
@@ -529,12 +601,14 @@ export function handleSwarmSubmit(args: {
   // Check if all outputs collected
   // For parallel phases with hierarchy: expect one output per L2 manager group
   const expectedOutputs = phaseDef.parallel
-    ? (session.agentGroups.length > 0 ? session.agentGroups.length : workstreamCount(session))
+    ? session.agentGroups.length > 0
+      ? session.agentGroups.length
+      : workstreamCount(session)
     : 1;
   const allCollected = phase.outputs.length >= expectedOutputs;
 
   if (allCollected) {
-    phase.status = 'done';
+    phase.status = "done";
   }
 
   // Determine next action
@@ -547,13 +621,13 @@ export function handleSwarmSubmit(args: {
     const nextIdx = phaseIdx + 1;
     if (nextIdx < session.phases.length) {
       const nextDef = TIER_PHASES[session.tier][nextIdx];
-      if (nextDef.name.startsWith('merge_')) {
+      if (nextDef.name.startsWith("merge_")) {
         nextAction = `Phase complete. Call swarm_merge with sessionId "${session.id}" and the collected outputs.`;
       } else {
         nextAction = `Phase complete. Call swarm_next with sessionId "${session.id}" to advance.`;
       }
     } else {
-      nextAction = 'All phases complete. Swarm finished.';
+      nextAction = "All phases complete. Swarm finished.";
     }
   }
 
@@ -563,6 +637,10 @@ export function handleSwarmSubmit(args: {
     phaseStatus: phase.status,
     outputsCollected: phase.outputs.length,
     outputsExpected: expectedOutputs,
+    drift: {
+      alignmentScore: drift.alignmentScore,
+      signals: drift.driftSignals,
+    },
     nextAction,
   });
 }
@@ -578,55 +656,59 @@ export function handleSwarmMerge(args: {
 
   // Find the next merge phase
   const phaseIdx = session.currentPhaseIndex + 1;
-  if (phaseIdx >= session.phases.length) return err('No more phases to merge.');
+  if (phaseIdx >= session.phases.length) return err("No more phases to merge.");
 
   const mergeDef = getPhaseDefinition(session, phaseIdx);
   const mergePhase = session.phases[phaseIdx];
 
-  if (!mergeDef.name.startsWith('merge_')) {
+  if (!mergeDef.name.startsWith("merge_")) {
     return err(`Next phase "${mergeDef.name}" is not a merge phase.`);
   }
 
   // Build anonymous merge prompt
   const contributorOutputs = (args.outputs ?? [])
     .map((o, i) => `=== Contributor ${i + 1} ===\n${stripIdentity(o)}`)
-    .join('\n\n');
+    .join("\n\n");
 
   // Compute convergence to guide synthesis
-  const currentRound = session.rounds.length > 0
-    ? Math.max(...session.rounds.map((r) => r.round))
-    : 0;
-  const currentScores = session.rounds.filter(r => r.round === currentRound);
+  const currentRound =
+    session.rounds.length > 0
+      ? Math.max(...session.rounds.map((r) => r.round))
+      : 0;
+  const currentScores = session.rounds.filter((r) => r.round === currentRound);
   const convergence = computeConvergence(session, currentRound, currentScores);
 
-  let guidance = '';
+  let guidance = "";
   if (convergence.stalling) {
-    guidance = 'CRITICAL: The swarm is stalling (low convergence). Do NOT just average the contributions. Look for novel, outlier ideas in the contributions that might break the deadlock. Be bold in your synthesis.';
+    guidance =
+      "CRITICAL: The swarm is stalling (low convergence). Do NOT just average the contributions. Look for novel, outlier ideas in the contributions that might break the deadlock. Be bold in your synthesis.";
   } else if (convergence.delta > 0.5) {
-    guidance = 'The swarm is converging well. Synthesize the contributions to refine the details and polish the solution. Focus on consistency.';
+    guidance =
+      "The swarm is converging well. Synthesize the contributions to refine the details and polish the solution. Focus on consistency.";
   } else {
-    guidance = 'Synthesize the contributions. Look for the strongest elements of each approach.';
+    guidance =
+      "Synthesize the contributions. Look for the strongest elements of each approach.";
   }
 
   const mergePrompt = [
     buildAnonymousHistory(session),
-    '',
-    '--- MERGE TASK ---',
-    'Multiple contributors have completed parallel work. Synthesize their outputs.',
-    `Convergence Status: ${convergence.delta > 0 ? 'Improving' : 'Stable'} (Delta: ${convergence.delta})`,
+    "",
+    "--- MERGE TASK ---",
+    "Multiple contributors have completed parallel work. Synthesize their outputs.",
+    `Convergence Status: ${convergence.delta > 0 ? "Improving" : "Stable"} (Delta: ${convergence.delta})`,
     guidance,
-    '',
+    "",
     contributorOutputs,
-    '',
-    'Produce:',
-    '1. A unified summary combining all contributions',
-    '2. Any conflicts identified between contributions',
-    '3. A recommended approach that resolves conflicts and maximizes quality',
-    '',
-    'Do not reference specific contributors by number in your final output.',
-  ].join('\n');
+    "",
+    "Produce:",
+    "1. A unified summary combining all contributions",
+    "2. Any conflicts identified between contributions",
+    "3. A recommended approach that resolves conflicts and maximizes quality",
+    "",
+    "Do not reference specific contributors by number in your final output.",
+  ].join("\n");
 
-  mergePhase.status = 'in_progress';
+  mergePhase.status = "in_progress";
   session.currentPhaseIndex = phaseIdx;
 
   const taskCall = buildTaskCall(
@@ -662,28 +744,28 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
 
   // Determine next action
   let nextAction: string;
-  if (currentPhase.status === 'pending') {
+  if (currentPhase.status === "pending") {
     nextAction = `Call swarm_next with sessionId "${session.id}".`;
-  } else if (currentPhase.status === 'in_progress') {
+  } else if (currentPhase.status === "in_progress") {
     if (phaseDef.isGate) {
       nextAction = `Call swarm_gate with sessionId "${session.id}" and scores.`;
     } else {
       nextAction = `Submit remaining outputs via swarm_submit.`;
     }
-  } else if (currentPhase.status === 'done') {
+  } else if (currentPhase.status === "done") {
     const nextIdx = session.currentPhaseIndex + 1;
     if (nextIdx >= session.phases.length) {
-      nextAction = 'All phases complete. Swarm finished.';
+      nextAction = "All phases complete. Swarm finished.";
     } else {
       const nextDef = TIER_PHASES[session.tier][nextIdx];
-      if (nextDef.name.startsWith('merge_')) {
+      if (nextDef.name.startsWith("merge_")) {
         nextAction = `Call swarm_merge with sessionId "${session.id}".`;
       } else {
         nextAction = `Call swarm_next with sessionId "${session.id}".`;
       }
     }
   } else {
-    nextAction = 'Phase skipped or blocked.';
+    nextAction = "Phase skipped or blocked.";
   }
 
   return ok({
@@ -699,29 +781,35 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
       model: ws.modelAssigned,
       provider: getModelProvider(ws.modelAssigned),
     })),
-    hierarchy: session.agentGroups.length > 0 ? {
-      model: 'L1 orchestrator → L2 managers → L3 workers',
-      groups: session.agentGroups.map(g => ({
-        id: g.id,
-        manager: g.managerAgent,
-        managerModel: g.managerModel,
-        status: g.status,
-        workers: g.workerSlots.map(ws => ({
-          workstream: ws.workstreamId,
-          agent: ws.agentType,
-          model: ws.model,
-        })),
-        hasReport: !!g.report,
-      })),
-    } : undefined,
+    hierarchy:
+      session.agentGroups.length > 0
+        ? {
+            model: "L1 orchestrator → L2 managers → L3 workers",
+            groups: session.agentGroups.map((g) => ({
+              id: g.id,
+              manager: g.managerAgent,
+              managerModel: g.managerModel,
+              status: g.status,
+              workers: g.workerSlots.map((ws) => ({
+                workstream: ws.workstreamId,
+                agent: ws.agentType,
+                model: ws.model,
+              })),
+              hasReport: !!g.report,
+            })),
+          }
+        : undefined,
     historySummary,
-    convergence: session.rounds.length > 0 ? (() => {
-      const latestRound = Math.max(...session.rounds.map((r) => r.round));
-      const latestScores = session.rounds
-        .filter((r) => r.round === latestRound)
-        .map((r) => ({ workstream: r.workstream, score: r.score }));
-      return computeConvergence(session, latestRound, latestScores);
-    })() : null,
+    convergence:
+      session.rounds.length > 0
+        ? (() => {
+            const latestRound = Math.max(...session.rounds.map((r) => r.round));
+            const latestScores = session.rounds
+              .filter((r) => r.round === latestRound)
+              .map((r) => ({ workstream: r.workstream, score: r.score }));
+            return computeConvergence(session, latestRound, latestScores);
+          })()
+        : null,
     nextAction,
   });
 }
@@ -741,11 +829,12 @@ export function handleSwarmGate(args: {
   }
 
   const phase = session.phases[session.currentPhaseIndex];
-  phase.status = 'in_progress';
+  phase.status = "in_progress";
 
-  const currentRound = session.rounds.length > 0
-    ? Math.max(...session.rounds.map((r) => r.round)) + 1
-    : 1;
+  const currentRound =
+    session.rounds.length > 0
+      ? Math.max(...session.rounds.map((r) => r.round)) + 1
+      : 1;
 
   // Store scores
   for (const s of args.scores) {
@@ -757,7 +846,7 @@ export function handleSwarmGate(args: {
     session.rounds.push({
       round: currentRound,
       workstream: s.workstream,
-      model: ws?.modelAssigned ?? 'unknown',
+      model: ws?.modelAssigned ?? "unknown",
       score: s.score,
       criticalIssues: s.criticalIssues,
     });
@@ -771,7 +860,7 @@ export function handleSwarmGate(args: {
   const allPass = failing.length === 0;
 
   if (allPass) {
-    phase.status = 'done';
+    phase.status = "done";
     advancePhase(session.id);
     return ok({
       proceed: true,
@@ -787,11 +876,13 @@ export function handleSwarmGate(args: {
   const loopsForWorkstream = (wsId: string) =>
     session.rounds.filter((r) => r.workstream === wsId).length;
 
-  const maxExceeded = failing.some((s) => loopsForWorkstream(s.workstream) >= session.maxLoops);
+  const maxExceeded = failing.some(
+    (s) => loopsForWorkstream(s.workstream) >= session.maxLoops,
+  );
 
   if (maxExceeded) {
     // Force proceed with warning
-    phase.status = 'done';
+    phase.status = "done";
     // Clear failing scores to allow advancePhase gate validation
     for (const s of failing) {
       const ws = session.workstreams.find((w) => w.id === s.workstream);
@@ -817,8 +908,11 @@ export function handleSwarmGate(args: {
 
   // Find the review phase to retry from
   const phases = TIER_PHASES[session.tier];
-  const reviewIdx = phases.findIndex((p) => p.name === 'review');
-  const retryPhase = reviewIdx >= 0 ? 'review' : phases[Math.max(0, session.currentPhaseIndex - 1)].name;
+  const reviewIdx = phases.findIndex((p) => p.name === "review");
+  const retryPhase =
+    reviewIdx >= 0
+      ? "review"
+      : phases[Math.max(0, session.currentPhaseIndex - 1)].name;
 
   return ok({
     proceed: false,
@@ -830,7 +924,7 @@ export function handleSwarmGate(args: {
       criticalIssues: s.criticalIssues,
     })),
     retryPhase,
-    retryInstructions: retryDetails.join('\n\n---\n\n'),
+    retryInstructions: retryDetails.join("\n\n---\n\n"),
     nextAction: `Scores below threshold. Re-run the "${retryPhase}" phase for failing workstreams, then call swarm_gate again.`,
   });
 }
@@ -844,12 +938,16 @@ export function handleSwarmCollect(args: {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
-  if (session.executionMode !== 'subprocess') {
-    return err('swarm_collect is only for subprocess execution mode. Use swarm_submit for task mode.');
+  if (session.executionMode !== "subprocess") {
+    return err(
+      "swarm_collect is only for subprocess execution mode. Use swarm_submit for task mode.",
+    );
   }
 
   if (!args.outputs || args.outputs.length === 0) {
-    return err('No outputs provided. Pass an array of {workstream, output} objects.');
+    return err(
+      "No outputs provided. Pass an array of {workstream, output} objects.",
+    );
   }
 
   const results = [];
@@ -871,17 +969,17 @@ export function handleSwarmCollect(args: {
   const phaseDef = getPhaseDefinition(session);
 
   let nextAction: string;
-  if (phase.status === 'done') {
+  if (phase.status === "done") {
     const nextIdx = session.currentPhaseIndex + 1;
     if (nextIdx < session.phases.length) {
       const nextDef = TIER_PHASES[session.tier][nextIdx];
-      if (nextDef.name.startsWith('merge_')) {
+      if (nextDef.name.startsWith("merge_")) {
         nextAction = `All subprocess outputs collected. Phase complete. Call swarm_merge with sessionId "${session.id}" and the outputs.`;
       } else {
         nextAction = `All subprocess outputs collected. Phase complete. Call swarm_next with sessionId "${session.id}" to advance.`;
       }
     } else {
-      nextAction = 'All phases complete. Swarm finished.';
+      nextAction = "All phases complete. Swarm finished.";
     }
   } else {
     const phaseDefCheck = getPhaseDefinition(session);
@@ -903,39 +1001,48 @@ export function handleSwarmCollect(args: {
 // ── swarm_models ──────────────────────────────────────────────────────
 
 export function handleSwarmModels(args: {
-  action?: 'list' | 'set';
+  action?: "list" | "set";
   models?: string[];
 }): ToolResult {
-  const action = args.action ?? 'list';
+  const action = args.action ?? "list";
 
-  if (action === 'set' && args.models && args.models.length > 0) {
+  if (action === "set" && args.models && args.models.length > 0) {
     setAvailableModels(args.models);
     const fallbacks = getFallbackLog();
     return ok({
-      action: 'set',
+      action: "set",
       accepted: getAvailableModels().map((m) => m.id),
-      ignored: args.models.filter((id) => !getAvailableModels().some((m) => m.id === id)),
+      ignored: args.models.filter(
+        (id) => !getAvailableModels().some((m) => m.id === id),
+      ),
       pools: {
         premium: [...premiumPool],
         coder: [...coderPool],
         critic: [...criticPool],
         fast: [...fastPool],
       },
-      fallbackSystem: 'active — models not in accepted list will auto-resolve to nearest available alternative',
+      fallbackSystem:
+        "active — models not in accepted list will auto-resolve to nearest available alternative",
       message: `Model pools updated. ${getAvailableModels().length} models active.`,
     });
   }
 
   return ok({
-    action: 'list',
-    available: getAvailableModels().map((m) => ({ id: m.id, tier: m.tier, provider: m.provider })),
+    action: "list",
+    available: getAvailableModels().map((m) => ({
+      id: m.id,
+      tier: m.tier,
+      provider: m.provider,
+    })),
     pools: {
       premium: [...premiumPool],
       coder: [...coderPool],
       critic: [...criticPool],
       fast: [...fastPool],
     },
-    recentFallbacks: getFallbackLog().slice(-10).map((f) => `${f.from} → ${f.to}`),
+    recentFallbacks: getFallbackLog()
+      .slice(-10)
+      .map((f) => `${f.from} → ${f.to}`),
     total: getAvailableModels().length,
   });
 }
@@ -955,7 +1062,10 @@ export function handleSwarmDispatch(args: {
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
   const prompt = getPrompt(session, args.promptRef);
-  if (!prompt) return err(`Prompt ref not found: ${args.promptRef}. Call swarm_next first.`);
+  if (!prompt)
+    return err(
+      `Prompt ref not found: ${args.promptRef}. Call swarm_next first.`,
+    );
 
   // Resolve model through fallback if provided
   let modelInfo: { model?: string; fallback?: boolean; original?: string } = {};
@@ -987,32 +1097,47 @@ export function handleSwarmThrottle(args: {
 
   // If concurrency provided, update it
   if (args.concurrency !== undefined && args.concurrency !== null) {
-    if (typeof args.concurrency === 'string' && args.concurrency in RATE_PRESETS) {
+    if (
+      typeof args.concurrency === "string" &&
+      args.concurrency in RATE_PRESETS
+    ) {
       session.concurrency = resolveRateLimit(args.concurrency as RatePreset);
     } else {
       const num = Number(args.concurrency);
       if (!isNaN(num) && num >= 0) {
         session.concurrency = num;
       } else {
-        return err(`Invalid concurrency: "${args.concurrency}". Use a preset name (${Object.keys(RATE_PRESETS).join(', ')}) or a number >= 0.`);
+        return err(
+          `Invalid concurrency: "${args.concurrency}". Use a preset name (${Object.keys(RATE_PRESETS).join(", ")}) or a number >= 0.`,
+        );
       }
     }
   }
 
   // Find matching preset
-  const matchedPreset = Object.entries(RATE_PRESETS).find(([_, v]) => v.concurrency === session.concurrency);
+  const matchedPreset = Object.entries(RATE_PRESETS).find(
+    ([_, v]) => v.concurrency === session.concurrency,
+  );
 
   // Count in-flight groups
-  const inFlight = session.agentGroups.filter(g => g.status === 'dispatched').length;
-  const completed = session.agentGroups.filter(g => g.status === 'done').length;
-  const pending = session.agentGroups.filter(g => g.status === 'pending').length;
+  const inFlight = session.agentGroups.filter(
+    (g) => g.status === "dispatched",
+  ).length;
+  const completed = session.agentGroups.filter(
+    (g) => g.status === "done",
+  ).length;
+  const pending = session.agentGroups.filter(
+    (g) => g.status === "pending",
+  ).length;
 
   return ok({
-    previous: previousConcurrency! > 0 ? previousConcurrency : 'unlimited',
-    current: session.concurrency! > 0 ? session.concurrency : 'unlimited',
+    previous: previousConcurrency! > 0 ? previousConcurrency : "unlimited",
+    current: session.concurrency! > 0 ? session.concurrency : "unlimited",
     changed: args.concurrency !== undefined,
-    preset: matchedPreset ? matchedPreset[0] : 'custom',
-    description: matchedPreset ? matchedPreset[1].description : `Custom: ${session.concurrency} concurrent L2 managers`,
+    preset: matchedPreset ? matchedPreset[0] : "custom",
+    description: matchedPreset
+      ? matchedPreset[1].description
+      : `Custom: ${session.concurrency} concurrent L2 managers`,
     groupStatus: {
       total: session.agentGroups.length,
       inFlight,
@@ -1020,12 +1145,15 @@ export function handleSwarmThrottle(args: {
       pending,
     },
     availablePresets: Object.fromEntries(
-      Object.entries(RATE_PRESETS).map(([k, v]) => [k, {
-        concurrency: v.concurrency || 'unlimited',
-        estimatedAgents: v.maxAgents === Infinity ? 'unlimited' : v.maxAgents,
-        plan: v.plan,
-        description: v.description,
-      }])
+      Object.entries(RATE_PRESETS).map(([k, v]) => [
+        k,
+        {
+          concurrency: v.concurrency || "unlimited",
+          estimatedAgents: v.maxAgents === Infinity ? "unlimited" : v.maxAgents,
+          plan: v.plan,
+          description: v.description,
+        },
+      ]),
     ),
   });
 }
@@ -1037,36 +1165,44 @@ export function handleSwarmThrottle(args: {
 export function handleSwarmRelay(args: {
   sessionId: string;
   workstream: string;
-  type?: 'finding' | 'blocker' | 'decision' | 'status' | 'plan' | 'report';
-  level?: 'L1' | 'L2' | 'L3';
+  type?: "finding" | "blocker" | "decision" | "status" | "plan" | "report";
+  level?: "L1" | "L2" | "L3";
   group?: string;
   content: string;
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
-  const type = args.type ?? 'finding';
-  const level = args.level ?? 'L1';
-  const msg = postToBoard(session, args.workstream, type, args.content, level, args.group);
+  const type = args.type ?? "finding";
+  const level = args.level ?? "L1";
+  const msg = postToBoard(
+    session,
+    args.workstream,
+    type,
+    args.content,
+    level,
+    args.group,
+  );
 
   // Mark workstream status if blocker
-  if (type === 'blocker') {
+  if (type === "blocker") {
     const ws = session.workstreams.find((w) => w.id === args.workstream);
-    if (ws) ws.status = 'blocked';
+    if (ws) ws.status = "blocked";
   }
 
   const boardSize = session.board.length;
-  const findings = session.board.filter((m) => m.type === 'finding').length;
-  const blockers = session.board.filter((m) => m.type === 'blocker').length;
-  const decisions = session.board.filter((m) => m.type === 'decision').length;
+  const findings = session.board.filter((m) => m.type === "finding").length;
+  const blockers = session.board.filter((m) => m.type === "blocker").length;
+  const decisions = session.board.filter((m) => m.type === "decision").length;
 
   return ok({
     sessionId: session.id,
     posted: { workstream: msg.workstream, type: msg.type },
     boardStats: { total: boardSize, findings, blockers, decisions },
-    nextAction: blockers > 0
-      ? `⚠️ ${blockers} blocker(s) on the board. Orchestrator: review blockers and make a decision before dispatching more work. Call swarm_relay with type="decision" to resolve.`
-      : `Board updated. ${findings} finding(s) available. These will be automatically injected into the next workstream's context when you call swarm_next.`,
+    nextAction:
+      blockers > 0
+        ? `⚠️ ${blockers} blocker(s) on the board. Orchestrator: review blockers and make a decision before dispatching more work. Call swarm_relay with type="decision" to resolve.`
+        : `Board updated. ${findings} finding(s) available. These will be automatically injected into the next workstream's context when you call swarm_next.`,
   });
 }
 
@@ -1077,8 +1213,8 @@ export function handleSwarmRelay(args: {
 export function handleSwarmBoard(args: {
   sessionId: string;
   workstream?: string;
-  types?: ('finding' | 'blocker' | 'decision' | 'status' | 'plan' | 'report')[];
-  level?: 'L1' | 'L2' | 'L3';
+  types?: ("finding" | "blocker" | "decision" | "status" | "plan" | "report")[];
+  level?: "L1" | "L2" | "L3";
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
@@ -1086,19 +1222,20 @@ export function handleSwarmBoard(args: {
   let messages = readBoard(session, args.workstream, args.types);
   // Filter by level if specified
   if (args.level) {
-    messages = messages.filter(m => m.level === args.level);
+    messages = messages.filter((m) => m.level === args.level);
   }
   const ready = getReadyWorkstreams(session);
   const blocked = getBlockedWorkstreams(session);
-  const blockers = session.board.filter((m) => m.type === 'blocker');
-  const decisions = session.board.filter((m) => m.type === 'decision');
-  const reports = session.board.filter((m) => m.type === 'report');
+  const blockers = session.board.filter((m) => m.type === "blocker");
+  const decisions = session.board.filter((m) => m.type === "decision");
+  const reports = session.board.filter((m) => m.type === "report");
   const unresolvedBlockers = blockers.filter((b) => {
-    return !decisions.some((d) =>
-      d.timestamp >= b.timestamp &&
-      (d.content.toLowerCase().includes(b.workstream.toLowerCase()) ||
-       d.content.toLowerCase().includes('resolved') ||
-       d.workstream === 'orchestrator')
+    return !decisions.some(
+      (d) =>
+        d.timestamp >= b.timestamp &&
+        (d.content.toLowerCase().includes(b.workstream.toLowerCase()) ||
+          d.content.toLowerCase().includes("resolved") ||
+          d.workstream === "orchestrator"),
     );
   });
 
@@ -1106,11 +1243,11 @@ export function handleSwarmBoard(args: {
   if (unresolvedBlockers.length > 0) {
     nextAction = `🛑 ${unresolvedBlockers.length} unresolved blocker(s). As orchestrator, make decisions on these before proceeding. Call swarm_relay(type="decision", content="...") to resolve each.`;
   } else if (ready.length > 0) {
-    nextAction = `${ready.length} workstream(s) ready to dispatch: ${ready.map((w) => w.id).join(', ')}. Call swarm_next to get task calls.`;
+    nextAction = `${ready.length} workstream(s) ready to dispatch: ${ready.map((w) => w.id).join(", ")}. Call swarm_next to get task calls.`;
   } else if (blocked.length > 0) {
     nextAction = `All remaining workstreams are blocked on dependencies. Resolve dependencies first.`;
   } else {
-    nextAction = 'All workstreams dispatched or complete.';
+    nextAction = "All workstreams dispatched or complete.";
   }
 
   return ok({
@@ -1119,53 +1256,72 @@ export function handleSwarmBoard(args: {
     summary: {
       total: messages.length,
       byType: {
-        finding: messages.filter((m) => m.type === 'finding').length,
-        blocker: messages.filter((m) => m.type === 'blocker').length,
-        decision: messages.filter((m) => m.type === 'decision').length,
-        status: messages.filter((m) => m.type === 'status').length,
-        plan: messages.filter((m) => m.type === 'plan').length,
-        report: messages.filter((m) => m.type === 'report').length,
+        finding: messages.filter((m) => m.type === "finding").length,
+        blocker: messages.filter((m) => m.type === "blocker").length,
+        decision: messages.filter((m) => m.type === "decision").length,
+        status: messages.filter((m) => m.type === "status").length,
+        plan: messages.filter((m) => m.type === "plan").length,
+        report: messages.filter((m) => m.type === "report").length,
       },
       byLevel: {
-        L1: messages.filter((m) => m.level === 'L1').length,
-        L2: messages.filter((m) => m.level === 'L2').length,
-        L3: messages.filter((m) => m.level === 'L3').length,
+        L1: messages.filter((m) => m.level === "L1").length,
+        L2: messages.filter((m) => m.level === "L2").length,
+        L3: messages.filter((m) => m.level === "L3").length,
       },
       unresolvedBlockers: unresolvedBlockers.length,
     },
-    hierarchy: session.agentGroups.length > 0 ? {
-      groups: session.agentGroups.map(g => ({
-        id: g.id,
-        status: g.status,
-        manager: g.managerAgent,
-        hasReport: !!g.report,
-        workers: g.workerSlots.map(ws => ws.workstreamId),
-      })),
-    } : undefined,
+    hierarchy:
+      session.agentGroups.length > 0
+        ? {
+            groups: session.agentGroups.map((g) => ({
+              id: g.id,
+              status: g.status,
+              manager: g.managerAgent,
+              hasReport: !!g.report,
+              workers: g.workerSlots.map((ws) => ws.workstreamId),
+            })),
+          }
+        : undefined,
     workstreams: {
       ready: ready.map((w) => w.id),
       blocked: blocked.map((w) => ({ id: w.id, waitingOn: w.dependencies })),
-      done: session.workstreams.filter((w) => w.status === 'done').map((w) => w.id),
+      done: session.workstreams
+        .filter((w) => w.status === "done")
+        .map((w) => w.id),
     },
-    debates: session.debates.length > 0 ? {
-      active: session.debates.filter(d => d.status !== 'resolved').map(d => ({
-        id: d.id,
-        topic: d.topic,
-        status: d.status,
-        round: `${d.currentRound}/${d.maxRounds}`,
-        groupId: d.groupId,
-        participants: d.participants.length,
-        lastEvaluation: d.rounds[d.rounds.length - 1]?.evaluation
-          ? {
-              convergence: d.rounds[d.rounds.length - 1].evaluation!.convergenceScore,
-              sycophancy: d.rounds[d.rounds.length - 1].evaluation!.sycophancyScore,
-              recommendation: d.rounds[d.rounds.length - 1].evaluation!.recommendation,
-            }
-          : undefined,
-      })),
-      debateMessages: session.board.filter(m => m.type.startsWith('debate-')).length,
-      resolved: session.debates.filter(d => d.status === 'resolved').length,
-    } : undefined,
+    debates:
+      session.debates.length > 0
+        ? {
+            active: session.debates
+              .filter((d) => d.status !== "resolved")
+              .map((d) => ({
+                id: d.id,
+                topic: d.topic,
+                status: d.status,
+                round: `${d.currentRound}/${d.maxRounds}`,
+                groupId: d.groupId,
+                participants: d.participants.length,
+                lastEvaluation: d.rounds[d.rounds.length - 1]?.evaluation
+                  ? {
+                      convergence:
+                        d.rounds[d.rounds.length - 1].evaluation!
+                          .convergenceScore,
+                      sycophancy:
+                        d.rounds[d.rounds.length - 1].evaluation!
+                          .sycophancyScore,
+                      recommendation:
+                        d.rounds[d.rounds.length - 1].evaluation!
+                          .recommendation,
+                    }
+                  : undefined,
+              })),
+            debateMessages: session.board.filter((m) =>
+              m.type.startsWith("debate-"),
+            ).length,
+            resolved: session.debates.filter((d) => d.status === "resolved")
+              .length,
+          }
+        : undefined,
     nextAction,
   });
 }
@@ -1178,7 +1334,15 @@ export function handleSwarmBoard(args: {
 
 export function handleSwarmDebate(args: {
   sessionId: string;
-  action: 'start' | 'next' | 'submit' | 'evaluate' | 'synthesize' | 'status' | 'escalate' | 'validate';
+  action:
+    | "start"
+    | "next"
+    | "submit"
+    | "evaluate"
+    | "synthesize"
+    | "status"
+    | "escalate"
+    | "validate";
   topic?: string;
   trigger?: DebateTrigger;
   groupId?: string;
@@ -1188,28 +1352,28 @@ export function handleSwarmDebate(args: {
   slotId?: string;
   content?: string;
   synthesis?: string;
-  validationOutcome?: 'confirmed' | 'failed' | 'partial';
+  validationOutcome?: "confirmed" | "failed" | "partial";
   validationFindings?: string[];
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
   switch (args.action) {
-    case 'start':
+    case "start":
       return handleDebateStart(session, args);
-    case 'next':
+    case "next":
       return handleDebateNext(session, args);
-    case 'submit':
+    case "submit":
       return handleDebateSubmit(session, args);
-    case 'evaluate':
+    case "evaluate":
       return handleDebateEvaluate(session, args);
-    case 'synthesize':
+    case "synthesize":
       return handleDebateSynthesize(session, args);
-    case 'status':
+    case "status":
       return handleDebateStatusAction(session, args);
-    case 'escalate':
+    case "escalate":
       return handleDebateEscalate(session, args);
-    case 'validate':
+    case "validate":
       return handleDebateValidate(session, args);
     default:
       return err(`Unknown debate action: ${args.action}`);
@@ -1219,22 +1383,36 @@ export function handleSwarmDebate(args: {
 // ── Debate: start ─────────────────────────────────────────────────────
 function handleDebateStart(
   session: SwarmSession,
-  args: { topic?: string; trigger?: DebateTrigger; groupId?: string; participantCount?: number; maxRounds?: number },
+  args: {
+    topic?: string;
+    trigger?: DebateTrigger;
+    groupId?: string;
+    participantCount?: number;
+    maxRounds?: number;
+  },
 ): ToolResult {
-  if (!args.topic) return err('Missing required field: topic (for action="start")');
+  if (!args.topic)
+    return err('Missing required field: topic (for action="start")');
 
-  const trigger = args.trigger ?? 'explicit';
+  const trigger = args.trigger ?? "explicit";
   const participantCount = Math.min(Math.max(args.participantCount ?? 2, 2), 5);
   const maxRounds = args.maxRounds ?? 3;
 
-  const debate = createDebate(session, args.topic, trigger, args.groupId, participantCount, maxRounds);
+  const debate = createDebate(
+    session,
+    args.topic,
+    trigger,
+    args.groupId,
+    participantCount,
+    maxRounds,
+  );
 
   // Post debate start to the board
   const level = debate.initiatorLevel;
   postToBoard(
     session,
-    args.groupId ?? 'orchestrator',
-    'debate-position',
+    args.groupId ?? "orchestrator",
+    "debate-position",
     `Debate started: "${args.topic}" | Trigger: ${trigger} | ${participantCount} participants | Max ${maxRounds} rounds`,
     level,
     args.groupId,
@@ -1248,7 +1426,7 @@ function handleDebateStart(
     trigger: debate.trigger,
     initiatorLevel: debate.initiatorLevel,
     groupId: debate.groupId,
-    participants: debate.participants.map(p => ({
+    participants: debate.participants.map((p) => ({
       slotId: p.slotId,
       agentType: p.agentType,
       model: p.model,
@@ -1268,18 +1446,19 @@ function handleDebateNext(
   session: SwarmSession,
   args: { debateId?: string },
 ): ToolResult {
-  if (!args.debateId) return err('Missing required field: debateId');
+  if (!args.debateId) return err("Missing required field: debateId");
 
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
 
-  if (debate.status === 'resolved' || debate.status === 'escalated') {
+  if (debate.status === "resolved" || debate.status === "escalated") {
     return ok({
       debateId: debate.id,
       status: debate.status,
       complete: true,
       synthesis: debate.synthesis,
-      nextAction: 'Debate is already resolved/escalated. Use the synthesis in your report.',
+      nextAction:
+        "Debate is already resolved/escalated. Use the synthesis in your report.",
     });
   }
 
@@ -1298,23 +1477,24 @@ function handleDebateNext(
     let prompt: string;
 
     switch (phase) {
-      case 'position':
+      case "position":
         // Use contrarian prompt if this participant is the assigned devil's advocate
-        prompt = (debate.contrarian === participant.slotId && debate.currentRound > 1)
-          ? buildContrarianPrompt(debate, participant, session)
-          : buildDebatePositionPrompt(debate, participant, session);
+        prompt =
+          debate.contrarian === participant.slotId && debate.currentRound > 1
+            ? buildContrarianPrompt(debate, participant, session)
+            : buildDebatePositionPrompt(debate, participant, session);
         break;
-      case 'critique':
+      case "critique":
         prompt = buildDebateCritiquePrompt(debate, participant, session);
         break;
-      case 'rebuttal':
+      case "rebuttal":
         prompt = buildDebateRebuttalPrompt(debate, participant, session);
         break;
-      case 'evaluation':
+      case "evaluation":
         // Evaluation is done by the manager, not workers
         return ok({
           debateId: debate.id,
-          phase: 'evaluation',
+          phase: "evaluation",
           round,
           readyForEvaluation: true,
           nextAction: `All contributions collected for round ${round}. Call swarm_debate(action="evaluate", sessionId="${session.id}", debateId="${debate.id}") to score positions and check convergence.`,
@@ -1350,7 +1530,7 @@ function handleDebateNext(
       `  3. Call swarm_debate(action="submit", sessionId="${session.id}", debateId="${debate.id}", slotId=taskCall.slotId, content=<task output>)`,
       ``,
       `After ALL ${phase} submissions, call swarm_debate(action="next") again to advance.`,
-    ].join('\n'),
+    ].join("\n"),
   });
 }
 
@@ -1359,31 +1539,36 @@ function handleDebateSubmit(
   session: SwarmSession,
   args: { debateId?: string; slotId?: string; content?: string },
 ): ToolResult {
-  if (!args.debateId) return err('Missing required field: debateId');
-  if (!args.slotId) return err('Missing required field: slotId');
-  if (!args.content) return err('Missing required field: content');
+  if (!args.debateId) return err("Missing required field: debateId");
+  if (!args.slotId) return err("Missing required field: slotId");
+  if (!args.content) return err("Missing required field: content");
 
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
 
-  if (debate.status !== 'active') {
-    return err(`Debate "${args.debateId}" is "${debate.status}", expected "active".`);
+  if (debate.status !== "active") {
+    return err(
+      `Debate "${args.debateId}" is "${debate.status}", expected "active".`,
+    );
   }
 
-  const participant = debate.participants.find(p => p.slotId === args.slotId);
+  const participant = debate.participants.find((p) => p.slotId === args.slotId);
   if (!participant) return err(`Unknown participant slot: ${args.slotId}`);
 
   const currentRound = debate.rounds[debate.rounds.length - 1];
-  if (!currentRound) return err('No active round. Call swarm_debate(action="next") first.');
+  if (!currentRound)
+    return err('No active round. Call swarm_debate(action="next") first.');
 
   const phase = currentRound.phase;
 
   // Check for duplicate submission
   const existing = currentRound.contributions.find(
-    c => c.slotId === args.slotId && c.phase === phase
+    (c) => c.slotId === args.slotId && c.phase === phase,
   );
   if (existing) {
-    return err(`${args.slotId} already submitted for ${phase} in round ${currentRound.roundNumber}.`);
+    return err(
+      `${args.slotId} already submitted for ${phase} in round ${currentRound.roundNumber}.`,
+    );
   }
 
   // Store the contribution (anonymized)
@@ -1398,12 +1583,15 @@ function handleDebateSubmit(
   currentRound.contributions.push(contribution);
 
   // Post to board for cross-team visibility
-  const boardType = phase === 'position' ? 'debate-position'
-    : phase === 'critique' ? 'debate-critique'
-    : 'debate-rebuttal';
+  const boardType =
+    phase === "position"
+      ? "debate-position"
+      : phase === "critique"
+        ? "debate-critique"
+        : "debate-rebuttal";
   postToBoard(
     session,
-    debate.groupId ?? 'orchestrator',
+    debate.groupId ?? "orchestrator",
     boardType as any,
     `[${debate.id}/${args.slotId}] ${phase}: ${args.content!.substring(0, 200)}...`,
     debate.initiatorLevel,
@@ -1413,10 +1601,13 @@ function handleDebateSubmit(
 
   // Count expected contributions for current phase
   const participantCount = debate.participants.length;
-  const expectedForPhase = phase === 'critique'
-    ? participantCount * (participantCount - 1)
-    : participantCount;
-  const currentPhaseContributions = currentRound.contributions.filter(c => c.phase === phase).length;
+  const expectedForPhase =
+    phase === "critique"
+      ? participantCount * (participantCount - 1)
+      : participantCount;
+  const currentPhaseContributions = currentRound.contributions.filter(
+    (c) => c.phase === phase,
+  ).length;
   const phaseComplete = currentPhaseContributions >= expectedForPhase;
 
   return ok({
@@ -1438,13 +1629,13 @@ function handleDebateEvaluate(
   session: SwarmSession,
   args: { debateId?: string },
 ): ToolResult {
-  if (!args.debateId) return err('Missing required field: debateId');
+  if (!args.debateId) return err("Missing required field: debateId");
 
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
 
   const currentRound = debate.rounds[debate.rounds.length - 1];
-  if (!currentRound) return err('No active round to evaluate.');
+  if (!currentRound) return err("No active round to evaluate.");
 
   // Score positions using structural heuristics
   const scores = scoreDebatePositions(currentRound, debate);
@@ -1462,19 +1653,29 @@ function handleDebateEvaluate(
   const partialConsensus = getPartialConsensus(debate);
 
   // Check fast-track eligibility (Round 1 only)
-  const fastTrackResult = checkFastTrack(debate, convergence, sycophancy, scores);
+  const fastTrackResult = checkFastTrack(
+    debate,
+    convergence,
+    sycophancy,
+    scores,
+  );
 
   // Assign devil's advocate if early consensus detected
   const contrarianResult = !fastTrackResult.eligible
     ? assignContrarian(debate, convergence, scores)
-    : { assigned: false, reason: 'Fast-track eligible — no contrarian needed' };
+    : { assigned: false, reason: "Fast-track eligible — no contrarian needed" };
 
   // Build evaluation
-  const evaluation = buildDebateEvaluation(scores, convergence, sycophancy, debate);
+  const evaluation = buildDebateEvaluation(
+    scores,
+    convergence,
+    sycophancy,
+    debate,
+  );
 
   // Override recommendation if fast-track is eligible
   if (fastTrackResult.eligible) {
-    evaluation.recommendation = 'converged';
+    evaluation.recommendation = "converged";
     evaluation.synthesisReady = true;
     evaluation.reasoning = `⚡ FAST-TRACK: ${fastTrackResult.reason}`;
   }
@@ -1483,27 +1684,27 @@ function handleDebateEvaluate(
   currentRound.completedAt = Date.now();
 
   // Update debate status based on recommendation
-  if (evaluation.recommendation === 'converged') {
-    debate.status = 'converged';
-  } else if (evaluation.recommendation === 'stalled') {
-    debate.status = 'stalled';
-  } else if (evaluation.recommendation === 'escalate') {
-    debate.status = 'stalled';
+  if (evaluation.recommendation === "converged") {
+    debate.status = "converged";
+  } else if (evaluation.recommendation === "stalled") {
+    debate.status = "stalled";
+  } else if (evaluation.recommendation === "escalate") {
+    debate.status = "stalled";
   }
 
   // Determine next action
   let nextAction: string;
   switch (evaluation.recommendation) {
-    case 'converged':
-      nextAction = `🤝 Debate converged! Convergence: ${(evaluation.convergenceScore * 100).toFixed(0)}%.${evaluation.dominantPosition ? ` Strongest position: ${evaluation.dominantPosition}.` : ''}${fastTrackResult.eligible ? ' ⚡ Fast-tracked — no further rounds needed.' : ''} Call swarm_debate(action="synthesize", sessionId="${session.id}", debateId="${debate.id}") to produce the final synthesis.`;
+    case "converged":
+      nextAction = `🤝 Debate converged! Convergence: ${(evaluation.convergenceScore * 100).toFixed(0)}%.${evaluation.dominantPosition ? ` Strongest position: ${evaluation.dominantPosition}.` : ""}${fastTrackResult.eligible ? " ⚡ Fast-tracked — no further rounds needed." : ""} Call swarm_debate(action="synthesize", sessionId="${session.id}", debateId="${debate.id}") to produce the final synthesis.`;
       break;
-    case 'continue':
-      nextAction = `Debate continues (round ${debate.currentRound}/${debate.maxRounds}). Convergence: ${(evaluation.convergenceScore * 100).toFixed(0)}%, trending ${convergence.trending}.${contrarianResult.assigned ? ` 😈 ${contrarianResult.slotId} assigned as devil's advocate for next round.` : ''} Call swarm_debate(action="next", sessionId="${session.id}", debateId="${debate.id}") for the next round.`;
+    case "continue":
+      nextAction = `Debate continues (round ${debate.currentRound}/${debate.maxRounds}). Convergence: ${(evaluation.convergenceScore * 100).toFixed(0)}%, trending ${convergence.trending}.${contrarianResult.assigned ? ` 😈 ${contrarianResult.slotId} assigned as devil's advocate for next round.` : ""} Call swarm_debate(action="next", sessionId="${session.id}", debateId="${debate.id}") for the next round.`;
       break;
-    case 'stalled':
+    case "stalled":
       nextAction = `⚠️ Debate stalled after ${debate.currentRound} rounds. Convergence stuck at ${(evaluation.convergenceScore * 100).toFixed(0)}%. ${partialConsensus.agreed.length} claims agreed, ${partialConsensus.contested.length} contested. Options: (1) Call swarm_debate(action="synthesize") to force a decision from best positions, or (2) Call swarm_debate(action="escalate") to send to L1 for resolution.`;
       break;
-    case 'escalate':
+    case "escalate":
       nextAction = `🛑 Escalation recommended: ${evaluation.reasoning}. Call swarm_debate(action="escalate", sessionId="${session.id}", debateId="${debate.id}") to package for L1 resolution.`;
       break;
   }
@@ -1532,8 +1733,16 @@ function handleDebateEvaluate(
       synthesisReady: evaluation.synthesisReady,
     },
     partialConsensus: {
-      agreed: partialConsensus.agreed.map(c => ({ id: c.id, text: c.text, agreeCount: c.agreeSlots.length })),
-      contested: partialConsensus.contested.map(c => ({ id: c.id, text: c.text, disagreeSlots: c.disagreeSlots })),
+      agreed: partialConsensus.agreed.map((c) => ({
+        id: c.id,
+        text: c.text,
+        agreeCount: c.agreeSlots.length,
+      })),
+      contested: partialConsensus.contested.map((c) => ({
+        id: c.id,
+        text: c.text,
+        disagreeSlots: c.disagreeSlots,
+      })),
       undecided: partialConsensus.undecided.length,
       consensusRatio: partialConsensus.consensusRatio,
     },
@@ -1549,7 +1758,7 @@ function handleDebateSynthesize(
   session: SwarmSession,
   args: { debateId?: string; synthesis?: string },
 ): ToolResult {
-  if (!args.debateId) return err('Missing required field: debateId');
+  if (!args.debateId) return err("Missing required field: debateId");
 
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
@@ -1557,13 +1766,13 @@ function handleDebateSynthesize(
   // If synthesis text is provided directly, store it and resolve
   if (args.synthesis) {
     debate.synthesis = args.synthesis;
-    debate.status = 'resolved';
+    debate.status = "resolved";
     debate.resolvedAt = Date.now();
 
     postToBoard(
       session,
-      debate.groupId ?? 'orchestrator',
-      'debate-synthesis',
+      debate.groupId ?? "orchestrator",
+      "debate-synthesis",
       `[${debate.id}] RESOLVED: ${args.synthesis.substring(0, 500)}`,
       debate.initiatorLevel,
       debate.groupId,
@@ -1572,10 +1781,10 @@ function handleDebateSynthesize(
 
     return ok({
       debateId: debate.id,
-      status: 'resolved',
+      status: "resolved",
       synthesis: debate.synthesis,
       rounds: debate.currentRound,
-      nextAction: 'Debate resolved. Include the synthesis in your report.',
+      nextAction: "Debate resolved. Include the synthesis in your report.",
     });
   }
 
@@ -1583,7 +1792,7 @@ function handleDebateSynthesize(
   const synthesisPrompt = buildDebateSynthesisPrompt(debate, session);
   const promptRef = storePrompt(session, synthesisPrompt);
 
-  const synthModel = resolveModel(coderPool[0] ?? 'claude-sonnet-4.6');
+  const synthModel = resolveModel(coderPool[0] ?? "claude-sonnet-4.6");
   const subagentType = getWorkerAgentName(synthModel);
 
   return ok({
@@ -1599,7 +1808,7 @@ function handleDebateSynthesize(
     nextAction: [
       `Execute the synthesis task, then call swarm_debate(action="synthesize", sessionId="${session.id}", debateId="${debate.id}", synthesis=<task output>) to resolve the debate.`,
       `Alternatively, you can write your own synthesis and submit it directly.`,
-    ].join('\n'),
+    ].join("\n"),
   });
 }
 
@@ -1612,7 +1821,7 @@ function handleDebateStatusAction(
     return ok({
       sessionId: session.id,
       totalDebates: session.debates.length,
-      debates: session.debates.map(d => ({
+      debates: session.debates.map((d) => ({
         id: d.id,
         topic: d.topic,
         status: d.status,
@@ -1628,8 +1837,10 @@ function handleDebateStatusAction(
         validationOutcome: d.validation?.outcome,
         lastEvaluation: d.rounds[d.rounds.length - 1]?.evaluation
           ? {
-              convergence: d.rounds[d.rounds.length - 1].evaluation!.convergenceScore,
-              recommendation: d.rounds[d.rounds.length - 1].evaluation!.recommendation,
+              convergence:
+                d.rounds[d.rounds.length - 1].evaluation!.convergenceScore,
+              recommendation:
+                d.rounds[d.rounds.length - 1].evaluation!.recommendation,
             }
           : undefined,
       })),
@@ -1639,7 +1850,7 @@ function handleDebateStatusAction(
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
 
-  const roundDetails = debate.rounds.map(r => ({
+  const roundDetails = debate.rounds.map((r) => ({
     round: r.roundNumber,
     phase: r.phase,
     contributions: r.contributions.length,
@@ -1666,7 +1877,7 @@ function handleDebateStatusAction(
     trigger: debate.trigger,
     initiatorLevel: debate.initiatorLevel,
     groupId: debate.groupId,
-    participants: debate.participants.map(p => ({
+    participants: debate.participants.map((p) => ({
       slotId: p.slotId,
       agentType: p.agentType,
       isContrarian: debate.contrarian === p.slotId,
@@ -1678,10 +1889,10 @@ function handleDebateStatusAction(
     contrarian: debate.contrarian,
     claims: {
       total: debate.claims.length,
-      agreed: debate.claims.filter(c => c.status === 'agreed').length,
-      contested: debate.claims.filter(c => c.status === 'contested').length,
-      undecided: debate.claims.filter(c => c.status === 'undecided').length,
-      details: debate.claims.slice(0, 10).map(c => ({
+      agreed: debate.claims.filter((c) => c.status === "agreed").length,
+      contested: debate.claims.filter((c) => c.status === "contested").length,
+      undecided: debate.claims.filter((c) => c.status === "undecided").length,
+      details: debate.claims.slice(0, 10).map((c) => ({
         id: c.id,
         text: c.text.substring(0, 150),
         status: c.status,
@@ -1690,11 +1901,13 @@ function handleDebateStatusAction(
       })),
     },
     synthesis: debate.synthesis,
-    validation: debate.validation ? {
-      outcome: debate.validation.outcome,
-      findings: debate.validation.findings,
-      reopenedDebateId: debate.validation.reopenedDebateId,
-    } : undefined,
+    validation: debate.validation
+      ? {
+          outcome: debate.validation.outcome,
+          findings: debate.validation.findings,
+          reopenedDebateId: debate.validation.reopenedDebateId,
+        }
+      : undefined,
     escalationContext: debate.escalationContext,
     thresholds: {
       convergence: debate.convergenceThreshold,
@@ -1709,19 +1922,19 @@ function handleDebateEscalate(
   session: SwarmSession,
   args: { debateId?: string },
 ): ToolResult {
-  if (!args.debateId) return err('Missing required field: debateId');
+  if (!args.debateId) return err("Missing required field: debateId");
 
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
 
   const escalationCtx = buildEscalationContext(debate, session);
   debate.escalationContext = escalationCtx;
-  debate.status = 'escalated';
+  debate.status = "escalated";
 
   postToBoard(
     session,
-    debate.groupId ?? 'orchestrator',
-    'debate-escalation',
+    debate.groupId ?? "orchestrator",
+    "debate-escalation",
     `[${debate.id}] ESCALATED: ${debate.topic}\n${escalationCtx.substring(0, 500)}`,
     debate.initiatorLevel,
     debate.groupId,
@@ -1732,7 +1945,7 @@ function handleDebateEscalate(
 
   return ok({
     debateId: debate.id,
-    status: 'escalated',
+    status: "escalated",
     topic: debate.topic,
     groupId: debate.groupId,
     roundsCompleted: debate.currentRound,
@@ -1743,22 +1956,28 @@ function handleDebateEscalate(
       debate.groupId
         ? `Include the escalation in your manager report under "## Escalations". The L1 orchestrator will resolve it.`
         : `Review the escalation context and make a decision. Then call swarm_debate(action="synthesize", sessionId="${session.id}", debateId="${debate.id}", synthesis=<your decision>) to resolve.`,
-    ].join('\n'),
+    ].join("\n"),
   });
 }
 
 // ── Debate: validate ──────────────────────────────────────────────────
 function handleDebateValidate(
   session: SwarmSession,
-  args: { debateId?: string; validationOutcome?: 'confirmed' | 'failed' | 'partial'; validationFindings?: string[] },
+  args: {
+    debateId?: string;
+    validationOutcome?: "confirmed" | "failed" | "partial";
+    validationFindings?: string[];
+  },
 ): ToolResult {
-  if (!args.debateId) return err('Missing required field: debateId');
+  if (!args.debateId) return err("Missing required field: debateId");
 
   const debate = getDebate(session, args.debateId);
   if (!debate) return err(`Debate not found: ${args.debateId}`);
 
-  if (debate.status !== 'resolved') {
-    return err(`Debate "${args.debateId}" is "${debate.status}" — validation only applies to resolved debates.`);
+  if (debate.status !== "resolved") {
+    return err(
+      `Debate "${args.debateId}" is "${debate.status}" — validation only applies to resolved debates.`,
+    );
   }
 
   // If no outcome provided, create/return the checkpoint for inspection
@@ -1785,37 +2004,45 @@ function handleDebateValidate(
         `Validation checkpoint created for debate "${debate.id}".`,
         `After workers implement the synthesis, call swarm_debate(action="validate", sessionId="${session.id}", debateId="${debate.id}", validationOutcome="confirmed|failed|partial", validationFindings=["finding1", "finding2"]) to record the outcome.`,
         `If "failed" or "partial", a new debate will automatically open with the findings as context.`,
-      ].join('\n'),
+      ].join("\n"),
     });
   }
 
   // Submit validation result
   const findings = args.validationFindings ?? [];
   const { checkpoint, reopened, newDebateId } = submitValidation(
-    session, debate, args.validationOutcome, findings,
+    session,
+    debate,
+    args.validationOutcome,
+    findings,
   );
 
   // Post to board
-  const emoji = args.validationOutcome === 'confirmed' ? '✅' : args.validationOutcome === 'failed' ? '❌' : '⚠️';
+  const emoji =
+    args.validationOutcome === "confirmed"
+      ? "✅"
+      : args.validationOutcome === "failed"
+        ? "❌"
+        : "⚠️";
   postToBoard(
     session,
-    debate.groupId ?? 'orchestrator',
-    'debate-synthesis',
-    `${emoji} [${debate.id}] VALIDATION ${args.validationOutcome.toUpperCase()}: ${findings.slice(0, 2).join('; ')}${reopened ? ` → Reopened as ${newDebateId}` : ''}`,
+    debate.groupId ?? "orchestrator",
+    "debate-synthesis",
+    `${emoji} [${debate.id}] VALIDATION ${args.validationOutcome.toUpperCase()}: ${findings.slice(0, 2).join("; ")}${reopened ? ` → Reopened as ${newDebateId}` : ""}`,
     debate.initiatorLevel,
     debate.groupId,
     debate.id,
   );
 
   let nextAction: string;
-  if (args.validationOutcome === 'confirmed') {
+  if (args.validationOutcome === "confirmed") {
     nextAction = `✅ Debate "${debate.id}" synthesis validated. Decision confirmed as correct.`;
   } else if (reopened && newDebateId) {
     nextAction = [
-      `${emoji} Validation ${args.validationOutcome}: ${findings.join('; ')}`,
+      `${emoji} Validation ${args.validationOutcome}: ${findings.join("; ")}`,
       `New debate "${newDebateId}" opened with prior claims and new evidence.`,
       `Call swarm_debate(action="next", sessionId="${session.id}", debateId="${newDebateId}") to begin the reopened debate.`,
-    ].join('\n');
+    ].join("\n");
   } else {
     nextAction = `${emoji} Validation recorded but no new debate opened.`;
   }
@@ -1829,7 +2056,9 @@ function handleDebateValidate(
     checkpoint: {
       outcome: checkpoint.outcome,
       submittedAt: new Date(checkpoint.submittedAt).toISOString(),
-      validatedAt: checkpoint.validatedAt ? new Date(checkpoint.validatedAt).toISOString() : undefined,
+      validatedAt: checkpoint.validatedAt
+        ? new Date(checkpoint.validatedAt).toISOString()
+        : undefined,
     },
     nextAction,
   });
@@ -1840,7 +2069,7 @@ function handleDebateValidate(
 
 export function handleSwarmClaim(args: {
   sessionId: string;
-  action: 'claim' | 'release' | 'check' | 'list';
+  action: "claim" | "release" | "check" | "list";
   paths?: string[];
   workstreamId?: string;
   groupId?: string;
@@ -1849,20 +2078,27 @@ export function handleSwarmClaim(args: {
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
   switch (args.action) {
-    case 'claim': {
-      if (!args.paths || args.paths.length === 0) return err('paths required for claim action');
-      if (!args.workstreamId) return err('workstreamId required for claim action');
-      if (!args.groupId) return err('groupId required for claim action');
+    case "claim": {
+      if (!args.paths || args.paths.length === 0)
+        return err("paths required for claim action");
+      if (!args.workstreamId)
+        return err("workstreamId required for claim action");
+      if (!args.groupId) return err("groupId required for claim action");
 
-      const result = claimFiles(session, args.paths, args.workstreamId, args.groupId);
+      const result = claimFiles(
+        session,
+        args.paths,
+        args.workstreamId,
+        args.groupId,
+      );
 
       if (result.conflicts.length > 0) {
         postToBoard(
           session,
           args.workstreamId,
-          'finding',
-          `⚠️ File claim conflicts: ${result.conflicts.map(c => `${c.path} (owned by ${c.owner})`).join(', ')}`,
-          'L3',
+          "finding",
+          `⚠️ File claim conflicts: ${result.conflicts.map((c) => `${c.path} (owned by ${c.owner})`).join(", ")}`,
+          "L3",
           args.groupId,
         );
       }
@@ -1871,15 +2107,18 @@ export function handleSwarmClaim(args: {
         claimed: result.claimed,
         conflicts: result.conflicts,
         totalActiveClaims: getAllActiveClaims(session).length,
-        nextAction: result.conflicts.length > 0
-          ? `⚠️ ${result.conflicts.length} file(s) already claimed by other workstreams. Coordinate with the owners or ask your L2 manager to resolve.`
-          : `✅ ${result.claimed.length} file(s) claimed for ${args.workstreamId}.`,
+        nextAction:
+          result.conflicts.length > 0
+            ? `⚠️ ${result.conflicts.length} file(s) already claimed by other workstreams. Coordinate with the owners or ask your L2 manager to resolve.`
+            : `✅ ${result.claimed.length} file(s) claimed for ${args.workstreamId}.`,
       });
     }
 
-    case 'release': {
-      if (!args.paths || args.paths.length === 0) return err('paths required for release action');
-      if (!args.workstreamId) return err('workstreamId required for release action');
+    case "release": {
+      if (!args.paths || args.paths.length === 0)
+        return err("paths required for release action");
+      if (!args.workstreamId)
+        return err("workstreamId required for release action");
 
       const released = releaseFiles(session, args.paths, args.workstreamId);
       return ok({
@@ -1888,20 +2127,22 @@ export function handleSwarmClaim(args: {
       });
     }
 
-    case 'check': {
-      if (!args.paths || args.paths.length === 0) return err('paths required for check action');
+    case "check": {
+      if (!args.paths || args.paths.length === 0)
+        return err("paths required for check action");
 
       const claims = checkFileClaims(session, args.paths);
       return ok({
         claims,
-        unclaimed: args.paths.filter(p => !claims.find(c => c.path === p)),
-        nextAction: claims.length > 0
-          ? `${claims.length} file(s) are claimed: ${claims.map(c => `${c.path} → ${c.claimedBy}`).join(', ')}`
-          : `All ${args.paths.length} file(s) are unclaimed and available.`,
+        unclaimed: args.paths.filter((p) => !claims.find((c) => c.path === p)),
+        nextAction:
+          claims.length > 0
+            ? `${claims.length} file(s) are claimed: ${claims.map((c) => `${c.path} → ${c.claimedBy}`).join(", ")}`
+            : `All ${args.paths.length} file(s) are unclaimed and available.`,
       });
     }
 
-    case 'list': {
+    case "list": {
       const claims = getAllActiveClaims(session);
       const byGroup = new Map<string, typeof claims>();
       for (const c of claims) {
@@ -1927,7 +2168,7 @@ export function handleSwarmClaim(args: {
 
 export function handleSwarmMemory(args: {
   sessionId: string;
-  action: 'search' | 'store' | 'list';
+  action: "search" | "store" | "list";
   query?: string;
   taskType?: string;
   approach?: string;
@@ -1941,15 +2182,15 @@ export function handleSwarmMemory(args: {
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
   switch (args.action) {
-    case 'search': {
-      if (!args.query) return err('query required for search action');
+    case "search": {
+      if (!args.query) return err("query required for search action");
 
       const patterns = searchPatterns(session, args.query, args.limit ?? 5);
       const context = buildPatternContext(patterns);
 
       return ok({
         matchCount: patterns.length,
-        patterns: patterns.map(p => ({
+        patterns: patterns.map((p) => ({
           id: p.id,
           taskType: p.taskType,
           approach: p.approach,
@@ -1959,18 +2200,22 @@ export function handleSwarmMemory(args: {
           filesInvolved: p.filesInvolved,
         })),
         injectionContext: context,
-        nextAction: patterns.length > 0
-          ? `Found ${patterns.length} relevant pattern(s). Inject the context into worker prompts for guidance.`
-          : `No matching patterns found. Worker will start fresh.`,
+        nextAction:
+          patterns.length > 0
+            ? `Found ${patterns.length} relevant pattern(s). Inject the context into worker prompts for guidance.`
+            : `No matching patterns found. Worker will start fresh.`,
       });
     }
 
-    case 'store': {
-      if (!args.taskType) return err('taskType required for store action');
-      if (!args.approach) return err('approach required for store action');
-      if (!args.qualityScore) return err('qualityScore required for store action');
+    case "store": {
+      if (!args.taskType) return err("taskType required for store action");
+      if (!args.approach) return err("approach required for store action");
+      if (!args.qualityScore)
+        return err("qualityScore required for store action");
       if (args.qualityScore < 8) {
-        return err(`Quality score must be ≥8 to store pattern (got ${args.qualityScore}). Only high-quality patterns are stored.`);
+        return err(
+          `Quality score must be ≥8 to store pattern (got ${args.qualityScore}). Only high-quality patterns are stored.`,
+        );
       }
 
       const entry = storePattern(
@@ -1991,10 +2236,10 @@ export function handleSwarmMemory(args: {
       });
     }
 
-    case 'list': {
+    case "list": {
       return ok({
         totalPatterns: session.patterns.length,
-        patterns: session.patterns.map(p => ({
+        patterns: session.patterns.map((p) => ({
           id: p.id,
           taskType: p.taskType,
           qualityScore: p.qualityScore,
@@ -2014,7 +2259,7 @@ export function handleSwarmMemory(args: {
 
 export function handleSwarmConsensus(args: {
   sessionId: string;
-  action: 'start' | 'propose' | 'evaluate' | 'status';
+  action: "start" | "propose" | "evaluate" | "status";
   groupId?: string;
   topic?: string;
   consensusId?: string;
@@ -2027,18 +2272,18 @@ export function handleSwarmConsensus(args: {
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
   switch (args.action) {
-    case 'start': {
-      if (!args.groupId) return err('groupId required for start action');
-      if (!args.topic) return err('topic required for start action');
+    case "start": {
+      if (!args.groupId) return err("groupId required for start action");
+      if (!args.topic) return err("topic required for start action");
 
       const consensus = createConsensus(session, args.groupId, args.topic);
 
       postToBoard(
         session,
         args.groupId,
-        'status',
+        "status",
         `🗳️ Consensus session started: "${args.topic}" (${consensus.id})`,
-        'L2',
+        "L2",
         args.groupId,
       );
 
@@ -2046,30 +2291,32 @@ export function handleSwarmConsensus(args: {
         consensusId: consensus.id,
         groupId: args.groupId,
         topic: args.topic,
-        status: 'collecting',
+        status: "collecting",
         nextAction: [
           `Consensus session "${consensus.id}" created.`,
           `Spawn 2-3 workers in proposal mode (mode="propose") with the topic.`,
           `Each worker submits via swarm_consensus(action="propose", consensusId="${consensus.id}", slotId="proposer-N", content=<proposal>)`,
           `After all proposals are in, call swarm_consensus(action="evaluate", consensusId="${consensus.id}")`,
-        ].join('\n'),
+        ].join("\n"),
       });
     }
 
-    case 'propose': {
-      if (!args.consensusId) return err('consensusId required for propose action');
-      if (!args.content) return err('content required for propose action');
-      if (!args.slotId) return err('slotId required for propose action');
+    case "propose": {
+      if (!args.consensusId)
+        return err("consensusId required for propose action");
+      if (!args.content) return err("content required for propose action");
+      if (!args.slotId) return err("slotId required for propose action");
 
       const consensus = getConsensus(session, args.consensusId);
       if (!consensus) return err(`Consensus not found: ${args.consensusId}`);
-      if (consensus.status !== 'collecting') return err(`Consensus is ${consensus.status}, not accepting proposals`);
+      if (consensus.status !== "collecting")
+        return err(`Consensus is ${consensus.status}, not accepting proposals`);
 
       submitProposal(
         consensus,
-        args.workstreamId ?? 'unknown',
+        args.workstreamId ?? "unknown",
         args.slotId,
-        args.model ?? 'unknown',
+        args.model ?? "unknown",
         args.content,
       );
 
@@ -2081,8 +2328,9 @@ export function handleSwarmConsensus(args: {
       });
     }
 
-    case 'evaluate': {
-      if (!args.consensusId) return err('consensusId required for evaluate action');
+    case "evaluate": {
+      if (!args.consensusId)
+        return err("consensusId required for evaluate action");
 
       const consensus = getConsensus(session, args.consensusId);
       if (!consensus) return err(`Consensus not found: ${args.consensusId}`);
@@ -2092,28 +2340,28 @@ export function handleSwarmConsensus(args: {
       postToBoard(
         session,
         consensus.groupId,
-        'decision',
+        "decision",
         `🗳️ Consensus "${consensus.id}": convergence=${(result.convergenceScore * 100).toFixed(0)}% → ${result.recommendation}`,
-        'L2',
+        "L2",
         consensus.groupId,
       );
 
       let nextAction: string;
-      if (result.recommendation === 'implement-best') {
+      if (result.recommendation === "implement-best") {
         const best = consensus.proposals.reduce((a, b) =>
-          (a.content.length > b.content.length) ? a : b
+          a.content.length > b.content.length ? a : b,
         );
         consensus.selectedProposal = best.slotId;
         nextAction = [
           `✅ Proposals converged (${(result.convergenceScore * 100).toFixed(0)}%).`,
           `Best proposal: ${best.slotId}. Dispatch that worker in implement mode.`,
-        ].join('\n');
-      } else if (result.recommendation === 'debate') {
-        consensus.status = 'escalated';
+        ].join("\n");
+      } else if (result.recommendation === "debate") {
+        consensus.status = "escalated";
         nextAction = [
           `⚠️ Proposals diverged (${(result.convergenceScore * 100).toFixed(0)}%).`,
           `Escalate to L2 debate protocol: swarm_debate(action="start", topic="${consensus.topic}", trigger="disagreement", groupId="${consensus.groupId}")`,
-        ].join('\n');
+        ].join("\n");
       } else {
         nextAction = `Need more proposals before evaluation (currently ${consensus.proposals.length}).`;
       }
@@ -2128,8 +2376,9 @@ export function handleSwarmConsensus(args: {
       });
     }
 
-    case 'status': {
-      if (!args.consensusId) return err('consensusId required for status action');
+    case "status": {
+      if (!args.consensusId)
+        return err("consensusId required for status action");
 
       const consensus = getConsensus(session, args.consensusId);
       if (!consensus) return err(`Consensus not found: ${args.consensusId}`);
@@ -2142,9 +2391,10 @@ export function handleSwarmConsensus(args: {
         proposalCount: consensus.proposals.length,
         convergenceScore: consensus.convergenceScore,
         selectedProposal: consensus.selectedProposal,
-        proposals: consensus.proposals.map(p => ({
+        proposals: consensus.proposals.map((p) => ({
           slotId: p.slotId,
-          contentPreview: p.content.substring(0, 200) + (p.content.length > 200 ? '...' : ''),
+          contentPreview:
+            p.content.substring(0, 200) + (p.content.length > 200 ? "..." : ""),
         })),
       });
     }
