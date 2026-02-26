@@ -1159,6 +1159,13 @@ export async function handleSwarmGate(args: {
     return handleValidationGate(session, phase);
   }
 
+  // Guard: scores are required for non-validation gates
+  if (!args.scores || !Array.isArray(args.scores)) {
+    return err(
+      `swarm_gate requires a "scores" array with { workstream, score, criticalIssues } entries.`,
+    );
+  }
+
   // WS3a: Pre-check phase — validate workstream coverage and degraded groups before scoring
   const expectedWsIds = session.workstreams.map((w) => w.id);
   const submittedWsIds = new Set(args.scores.map((s) => s.workstream));
