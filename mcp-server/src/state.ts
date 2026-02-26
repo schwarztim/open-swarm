@@ -242,17 +242,25 @@ export interface RateConfig {
 // ── Token-Bucket API Rate Limiter ────────────────────────────────────
 // Paces dispatch calls to stay under GitHub Copilot's per-model-tier RPM limits.
 // The orchestrator is told to wait N seconds when the bucket is empty.
+//
+// Copilot premium request multipliers (per prompt):
+//   Premium (Opus, codex-max): 3x premium requests
+//   Standard (Sonnet, GPT-5.x): 1x premium request
+//   Fast (Haiku, codex-mini): ~0.33x premium request
+//   Gemini (Pro, Flash): ~0.5x / ~0.25x premium request
+// Quality takes precedence over cost — use the best model for the job.
 
 interface TierRPM {
   rpm: number;         // requests per minute for this tier
   burstMax: number;    // max burst tokens (allows small bursts then paces)
   intervalMs: number;  // computed: 60000 / rpm
+  costMultiplier: number; // Copilot premium request multiplier
 }
 
 const TIER_RPM: Record<string, TierRPM> = {
-  premium: { rpm: 2, burstMax: 2, intervalMs: 30000 },   // Opus: ~2 RPM
-  standard: { rpm: 10, burstMax: 5, intervalMs: 6000 },  // Sonnet/GPT-5.x/Gemini: ~10 RPM
-  fast: { rpm: 15, burstMax: 8, intervalMs: 4000 },      // Haiku/mini/flash: ~15 RPM
+  premium: { rpm: 2, burstMax: 2, intervalMs: 30000, costMultiplier: 3 },    // Opus/codex-max: 3x
+  standard: { rpm: 10, burstMax: 5, intervalMs: 6000, costMultiplier: 1 },   // Sonnet/GPT-5.x: 1x
+  fast: { rpm: 15, burstMax: 8, intervalMs: 4000, costMultiplier: 0.33 },    // Haiku/mini/flash: ~0.33x
 };
 
 class TokenBucket {
@@ -322,12 +330,12 @@ export function checkRateLimit(sessionId: string, modelId: string): { ok: boolea
 }
 
 /** Get rate limiter status for all tiers in a session. */
-export function getRateLimitStatus(sessionId: string): Record<string, { tokens: number; maxTokens: number; rpm: number }> {
-  const result: Record<string, { tokens: number; maxTokens: number; rpm: number }> = {};
+export function getRateLimitStatus(sessionId: string): Record<string, { tokens: number; maxTokens: number; rpm: number; costMultiplier: number }> {
+  const result: Record<string, { tokens: number; maxTokens: number; rpm: number; costMultiplier: number }> = {};
   for (const [tierName, tierConfig] of Object.entries(TIER_RPM)) {
     const bucket = getBucket(sessionId, tierName);
     const s = bucket.status();
-    result[tierName] = { tokens: s.tokens, maxTokens: s.maxTokens, rpm: tierConfig.rpm };
+    result[tierName] = { tokens: s.tokens, maxTokens: s.maxTokens, rpm: tierConfig.rpm, costMultiplier: tierConfig.costMultiplier };
   }
   return result;
 }
