@@ -87,6 +87,7 @@ import {
   getConsensus,
   submitProposal,
   evaluateConsensus,
+  sessions,
 } from "./state.js";
 import { memoryStore } from "./memory.js";
 import {
@@ -194,6 +195,7 @@ export async function handleSwarmInit(args: {
   fileCount?: number;
   executionMode?: ExecutionMode;
   concurrency?: number | string; // number or preset name
+  cleanSlate?: boolean;
 }): Promise<ToolResult> {
   const { task, fileCount } = args;
   if (!task) return err("Missing required field: task");
@@ -220,6 +222,38 @@ export async function handleSwarmInit(args: {
     resolvedConcurrency,
   );
   const phaseDefs = TIER_PHASES[tier];
+
+  // WS6a: Check for existing sessions with same task (prior run detection)
+  const STALE_PATHS = [
+    "FINAL_REPORT.md",
+    "COMPLETION_SUMMARY.txt",
+    "CRITICAL_STUBS_FIXED.md",
+    "FIXES_SUMMARY.txt",
+  ];
+  let priorRunWarning:
+    | { sessionId: string; message: string; stalePaths: string[] }
+    | undefined;
+  const priorSession = Array.from(sessions.values()).find(
+    (s) => s.id !== session.id && s.task === task,
+  );
+  if (priorSession) {
+    priorRunWarning = {
+      sessionId: priorSession.id,
+      message: `Prior session "${priorSession.id}" found for this task. Stale artifacts may exist.`,
+      stalePaths: STALE_PATHS,
+    };
+  }
+
+  // WS6b: Clean slate — delete stored prompts from prior sessions with the same task
+  let cleanSlateApplied = false;
+  if (args.cleanSlate === true) {
+    for (const [, s] of sessions) {
+      if (s.id !== session.id && s.task === task) {
+        s.promptStore.clear();
+      }
+    }
+    cleanSlateApplied = true;
+  }
 
   // Seed default workstreams for parallel tiers
   const hasParallel = phaseDefs.some((p) => p.parallel);
@@ -282,6 +316,8 @@ export async function handleSwarmInit(args: {
     rateLimit: rateLimitInfo,
     apiRateLimits: getRateLimitStatus(session.id),
     priorPatterns,
+    priorRunWarning,
+    cleanSlate: cleanSlateApplied ? true : undefined,
     availablePresets: Object.fromEntries(
       Object.entries(RATE_PRESETS).map(([k, v]) => [
         k,
@@ -323,6 +359,83 @@ export function handleSwarmNext(args: {
   const phaseDef = getPhaseDefinition(session);
   const phase = session.phases[phaseIdx];
   const history = buildAnonymousHistory(session);
+
+  // WS2c: Check for degraded groups and generate reassignment dispatches
+  const degradedGroups = session.agentGroups.filter(
+    (g) => g.healthStatus === "degraded",
+  );
+  const reassignments: Array<{
+    fromGroup: string;
+    toGroup: string;
+    workstreams: string[];
+    reason: string;
+  }> = [];
+  const reassignmentManagerCalls: Array<{
+    subagent_type: string;
+    description: string;
+    promptRef: string;
+    model: string;
+    groupId: string;
+    workstreams: string[];
+    reassignment: true;
+  }> = [];
+
+  for (const degradedGroup of degradedGroups) {
+    // Collect incomplete workstreams (no score or score < 7)
+    const incompleteWorkstreams = degradedGroup.workerSlots.filter((slot) => {
+      const ws = session.workstreams.find((w) => w.id === slot.workstreamId);
+      return !ws || ws.score === undefined || (ws.score as number) < 7;
+    });
+
+    if (incompleteWorkstreams.length === 0) continue;
+
+    // Find a different provider model for diversity
+    const degradedProvider = getModelProvider(degradedGroup.managerModel);
+    const alternativeModel =
+      coderPool.find((m) => getModelProvider(m) !== degradedProvider) ??
+      premiumPool.find((m) => getModelProvider(m) !== degradedProvider);
+
+    // WS2c: If no different-provider model exists, skip this group's reassignment
+    if (!alternativeModel) {
+      postToBoard(
+        session,
+        degradedGroup.id,
+        "status",
+        `Cannot reassign ${degradedGroup.id} workstreams — no alternative provider available`,
+        "L1",
+        degradedGroup.id,
+      );
+      continue;
+    }
+
+    const newManagerAgent = getManagerAgentName(alternativeModel);
+    const newGroupId = `${degradedGroup.id}-retry-${Date.now()}`;
+
+    const managerPrompt = buildManagerPrompt(
+      session,
+      degradedGroup,
+      phaseDef.name,
+      history,
+    );
+    const promptRef = storePrompt(session, managerPrompt);
+
+    reassignments.push({
+      fromGroup: degradedGroup.id,
+      toGroup: newGroupId,
+      workstreams: incompleteWorkstreams.map((s) => s.workstreamId),
+      reason: degradedGroup.failureReason ?? "degraded",
+    });
+
+    reassignmentManagerCalls.push({
+      subagent_type: newManagerAgent,
+      description: `Reassignment: ${phaseDef.name} ${newGroupId} (${incompleteWorkstreams.length} workers)`,
+      promptRef,
+      model: alternativeModel,
+      groupId: newGroupId,
+      workstreams: incompleteWorkstreams.map((s) => s.workstreamId),
+      reassignment: true,
+    });
+  }
 
   // ── Subprocess mode ──
   if (session.executionMode === "subprocess") {
@@ -430,6 +543,8 @@ export function handleSwarmNext(args: {
       totalWorkers: session.workstreams.length,
       statusBoard,
       managerCalls,
+      reassignments: reassignments.length > 0 ? reassignments : undefined,
+      reassignmentManagerCalls: reassignmentManagerCalls.length > 0 ? reassignmentManagerCalls : undefined,
       nextAction: [
         `Dispatch ${managerCalls.length} L2 manager(s)${remainingPending > 0 ? ` (wave — ${remainingPending} more queued, concurrency=${session.concurrency})` : ""}.`,
         `⚠️ RATE PACING: Stagger dispatches — dispatch 2 managers at a time, then bash("sleep 8") before next batch.`,
@@ -618,6 +733,35 @@ export function handleSwarmSubmit(args: {
     for (const slot of group.workerSlots) {
       const ws = session.workstreams.find((w) => w.id === slot.workstreamId);
       if (ws) ws.status = "done";
+    }
+
+    // WS2b: Detect degraded groups from failure indicators in output.
+    // Require 2+ weak indicators OR 1 strong indicator to avoid false positives.
+    const strongDegradedPattern = /\b(PARTIAL|DEGRADED)\b|BUILD\s+(PARTIAL|FAILED|DEGRADED)\b/i;
+    const weakIndicators = ["limited tool access", "failed to"];
+    const lowerOutput = args.output.toLowerCase();
+    const weakMatches = weakIndicators.filter((ind) =>
+      lowerOutput.includes(ind.toLowerCase()),
+    );
+    const isDegraded =
+      strongDegradedPattern.test(args.output) || weakMatches.length >= 2;
+    const degradedIndicator = isDegraded
+      ? strongDegradedPattern.test(args.output)
+        ? args.output.match(strongDegradedPattern)?.[0] ?? "PARTIAL"
+        : weakMatches.join(", ")
+      : null;
+    if (degradedIndicator) {
+      group.healthStatus = "degraded";
+      group.failureReason = degradedIndicator;
+      group.submittedAt = Date.now();
+      postToBoard(
+        session,
+        group.id,
+        "report",
+        `⚠️ Group ${group.id} marked degraded: detected "${degradedIndicator}" in output. Workstreams may need reassignment.`,
+        "L2",
+        group.id,
+      );
     }
   } else {
     // Non-grouped submit (single-task phases)
@@ -859,6 +1003,7 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
 export async function handleSwarmGate(args: {
   sessionId: string;
   scores: Array<{ workstream: string; score: number; criticalIssues: number }>;
+  includeBoard?: boolean;
 }): Promise<ToolResult> {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
@@ -866,6 +1011,55 @@ export async function handleSwarmGate(args: {
   const phaseDef = getPhaseDefinition(session);
   if (!phaseDef.isGate) {
     return err(`Current phase "${phaseDef.name}" is not a gate phase.`);
+  }
+
+  // WS3a: Pre-check phase — validate workstream coverage and degraded groups before scoring
+  const expectedWsIds = session.workstreams.map((w) => w.id);
+  const submittedWsIds = new Set(args.scores.map((s) => s.workstream));
+  const missingWorkstreams = expectedWsIds.filter((id) => !submittedWsIds.has(id));
+
+  const degradedGroups = session.agentGroups.filter(
+    (g) => g.healthStatus === "degraded",
+  );
+  const unresolvedDegraded = degradedGroups.filter((g) => {
+    // A degraded group is unresolved if any of its workstreams have no score or score < 7
+    return g.workerSlots.some((slot) => {
+      const wsScore = args.scores.find((s) => s.workstream === slot.workstreamId);
+      return !wsScore || wsScore.score < 7;
+    });
+  });
+
+  const preChecks = {
+    workstream_coverage: {
+      passed: missingWorkstreams.length === 0,
+      missing: missingWorkstreams,
+      message: missingWorkstreams.length === 0
+        ? "All expected workstreams have submissions."
+        : `Missing submissions for: ${missingWorkstreams.join(", ")}`,
+    },
+    degraded_groups: {
+      passed: unresolvedDegraded.length === 0,
+      groups: unresolvedDegraded.map((g) => ({
+        id: g.id,
+          failureReason: g.failureReason ?? "unknown",
+      })),
+      message: unresolvedDegraded.length === 0
+        ? "No degraded groups with unresolved workstreams."
+        : `${unresolvedDegraded.length} degraded group(s) with unresolved workstreams: ${unresolvedDegraded.map((g) => g.id).join(", ")}`,
+    },
+  };
+
+  const anyPreCheckFailed =
+    !preChecks.workstream_coverage.passed || !preChecks.degraded_groups.passed;
+
+  if (anyPreCheckFailed) {
+    return ok({
+      proceed: false,
+      preChecksFailed: true,
+      preChecks,
+      nextAction:
+        "Pre-checks failed. Resolve issues before calling swarm_gate.",
+    });
   }
 
   const phase = session.phases[session.currentPhaseIndex];
@@ -983,9 +1177,14 @@ export async function handleSwarmGate(args: {
   }
 
   // Build retry instructions with cross-awareness
+  // WS1c: Only embed full board context when includeBoard===true (default: false to save tokens)
+  const includeBoard = args.includeBoard === true;
   const retryDetails = failing.map((s) => {
-    const wsHistory = buildAnonymousHistory(session, s.workstream);
-    return `Workstream "${s.workstream}" scored ${s.score}/10 with ${s.criticalIssues} critical issue(s). Retry needed.\n\nContext:\n${wsHistory}`;
+    if (includeBoard) {
+      const wsHistory = buildAnonymousHistory(session, s.workstream);
+      return `Workstream "${s.workstream}" scored ${s.score}/10 with ${s.criticalIssues} critical issue(s). Retry needed.\n\nContext:\n${wsHistory}`;
+    }
+    return `Workstream "${s.workstream}" scored ${s.score}/10 with ${s.criticalIssues} critical issue(s). Retry needed.`;
   });
 
   // Find the review phase to retry from
@@ -1007,6 +1206,9 @@ export async function handleSwarmGate(args: {
     })),
     retryPhase,
     retryInstructions: retryDetails.join("\n\n---\n\n"),
+    ...(includeBoard
+      ? {}
+      : { boardRef: "Use swarm_board with mode=summary to review context before retry" }),
     nextAction: `Scores below threshold. Re-run the "${retryPhase}" phase for failing workstreams, then call swarm_gate again.`,
   });
 }
@@ -1320,6 +1522,9 @@ export function handleSwarmBoard(args: {
   workstream?: string;
   types?: ("finding" | "blocker" | "decision" | "status" | "plan" | "report")[];
   level?: "L1" | "L2" | "L3";
+  page?: number;
+  pageSize?: number;
+  mode?: "full" | "summary";
 }): ToolResult {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
@@ -1329,6 +1534,72 @@ export function handleSwarmBoard(args: {
   if (args.level) {
     messages = messages.filter((m) => m.level === args.level);
   }
+
+  // WS1b: Summary mode — group by workstream, return only latest message per type
+  if (args.mode === "summary") {
+    const wsMap = new Map<string, {
+      id: string;
+      latestFinding?: BoardMessage;
+      latestReport?: BoardMessage;
+      latestReview?: BoardMessage;
+      messageCount: number;
+    }>();
+
+    for (const msg of messages) {
+      const entry = wsMap.get(msg.workstream) ?? {
+        id: msg.workstream,
+        messageCount: 0,
+      };
+      entry.messageCount++;
+      if (msg.type === "finding") {
+        if (!entry.latestFinding || msg.timestamp > entry.latestFinding.timestamp) {
+          entry.latestFinding = msg;
+        }
+      } else if (msg.type === "report") {
+        if (!entry.latestReport || msg.timestamp > entry.latestReport.timestamp) {
+          entry.latestReport = msg;
+        }
+      } else if ((msg.type as string) === "review") {
+        if (!entry.latestReview || msg.timestamp > entry.latestReview.timestamp) {
+          entry.latestReview = msg;
+        }
+      }
+      wsMap.set(msg.workstream, entry);
+    }
+
+    return ok({
+      sessionId: session.id,
+      mode: "summary",
+      workstreams: Array.from(wsMap.values()).map((e) => ({
+        id: e.id,
+        messageCount: e.messageCount,
+        latestFinding: e.latestFinding
+          ? { content: e.latestFinding.content.substring(0, 300), timestamp: e.latestFinding.timestamp }
+          : undefined,
+        latestReport: e.latestReport
+          ? { content: e.latestReport.content.substring(0, 300), timestamp: e.latestReport.timestamp }
+          : undefined,
+        latestReview: e.latestReview
+          ? { content: e.latestReview.content.substring(0, 300), timestamp: e.latestReview.timestamp }
+          : undefined,
+      })),
+    });
+  }
+
+  // WS1a: Pagination — apply AFTER filters
+  const totalMessages = messages.length;
+  let paginationMeta: {
+    page: number; pageSize: number; totalMessages: number; totalPages: number; hasMore: boolean;
+  } | undefined;
+
+  if (args.page !== undefined) {
+    const pageSize = Math.min(args.pageSize ?? 20, 50);
+    const page = Math.max(args.page, 1);
+    const totalPages = Math.ceil(totalMessages / pageSize);
+    messages = messages.slice((page - 1) * pageSize, page * pageSize);
+    paginationMeta = { page, pageSize, totalMessages, totalPages, hasMore: page < totalPages };
+  }
+
   const ready = getReadyWorkstreams(session);
   const blocked = getBlockedWorkstreams(session);
   const blockers = session.board.filter((m) => m.type === "blocker");
@@ -1427,6 +1698,7 @@ export function handleSwarmBoard(args: {
               .length,
           }
         : undefined,
+    pagination: paginationMeta,
     nextAction,
   });
 }

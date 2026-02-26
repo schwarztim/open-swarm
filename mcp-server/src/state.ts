@@ -463,6 +463,9 @@ export interface AgentGroup {
   plan: string; // L2 manager's plan (submitted during execution)
   status: "pending" | "dispatched" | "reporting" | "done";
   report?: string; // L2's final synthesized report to L1
+  healthStatus?: "healthy" | "degraded" | "failed"; // WS2a: group health tracking
+  failureReason?: string; // WS2a: reason for degraded/failed status
+  submittedAt?: number; // WS2a: timestamp when report was submitted
 }
 
 export interface WorkerSlot {
@@ -652,8 +655,8 @@ const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
   "claude-haiku-4.5": [
     "gemini-3-flash-preview", // #7 (1,510) — much higher Code Arena
     "gpt-5.1-codex-mini",
+    "claude-sonnet-4.6", // #9 (1,329) — prefer 4.6 over 4.5
     "claude-sonnet-4.5", // #13 (1,115)
-    "claude-sonnet-4.6", // #9 (1,329)
   ],
   "gpt-5.1-codex-mini": [
     "gemini-3-flash-preview", // #7 (1,510) — much higher Code Arena
@@ -663,14 +666,31 @@ const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
   ],
 };
 
+// ── Model Upgrade Map ─────────────────────────────────────────────────
+// Ensures newer (better) model versions are always preferred over older ones.
+// When a resolved model has an upgrade and the upgrade is available, use it.
+const MODEL_UPGRADES: Record<string, string> = {
+  "claude-sonnet-4.5": "claude-sonnet-4.6",
+  "claude-opus-4.5": "claude-opus-4.6",
+};
+
 /**
  * Resolve a model to an available one. If the requested model is available, return it.
  * Otherwise walk the fallback chain, then try same-tier same-provider, same-tier any, then anything.
  */
 export function resolveModel(requestedModel: string): string {
   // If available, use it directly
-  if (availableModels.find((m) => m.id === requestedModel))
+  if (availableModels.find((m) => m.id === requestedModel)) {
+    // WS5b: Check if an upgrade is available
+    const upgrade = MODEL_UPGRADES[requestedModel];
+    if (upgrade && availableModels.find((m) => m.id === upgrade)) {
+      console.error(
+        `[model-upgrade] ${requestedModel} → ${upgrade} (upgrade available)`,
+      );
+      return upgrade;
+    }
     return requestedModel;
+  }
 
   const requested = ALL_MODELS.find((m) => m.id === requestedModel);
   const requestedTier = requested?.tier ?? "standard";
@@ -684,6 +704,14 @@ export function resolveModel(requestedModel: string): string {
         console.error(
           `[model-fallback] ${requestedModel} → ${fallback} (explicit chain)`,
         );
+        // WS5b: Check if an upgrade is available for the fallback too
+        const upgrade = MODEL_UPGRADES[fallback];
+        if (upgrade && availableModels.find((m) => m.id === upgrade)) {
+          console.error(
+            `[model-upgrade] ${fallback} → ${upgrade} (upgrade available)`,
+          );
+          return upgrade;
+        }
         return fallback;
       }
     }
@@ -738,16 +766,21 @@ export function resolveModelTracked(requestedModel: string): {
   wasFallback: boolean;
 } {
   const resolved = resolveModel(requestedModel);
-  const wasFallback = resolved !== requestedModel;
+  // WS5b: Also check for upgrade on the resolved model (handles cases where
+  // resolveModel returned an exact match but an upgrade is available)
+  const upgrade = MODEL_UPGRADES[resolved];
+  const final =
+    upgrade && availableModels.find((m) => m.id === upgrade) ? upgrade : resolved;
+  const wasFallback = final !== requestedModel;
   if (wasFallback) {
     fallbackLog.push({
       from: requestedModel,
-      to: resolved,
-      reason: "not_available",
+      to: final,
+      reason: final !== resolved ? "upgrade_available" : "not_available",
       ts: new Date(),
     });
   }
-  return { model: resolved, wasFallback };
+  return { model: final, wasFallback };
 }
 
 export function getFallbackLog(): typeof fallbackLog {
@@ -809,6 +842,19 @@ function rebuildPools(): void {
   if (coderPool.length === 0) coderPool = ["claude-sonnet-4.6"];
   if (criticPool.length === 0) criticPool = coderPool.slice(0, 2);
   if (fastPool.length === 0) fastPool = ["claude-haiku-4.5"];
+
+  // WS5d: Apply upgrades across all pools — replace old models with new ones
+  // if the new model is available (ensures 4.6 is always used over 4.5)
+  const availableIds = new Set(availableModels.map((m) => m.id));
+  const applyUpgrades = (pool: string[]): string[] =>
+    pool.map((id) => {
+      const upgrade = MODEL_UPGRADES[id];
+      return upgrade && availableIds.has(upgrade) ? upgrade : id;
+    });
+  premiumPool = [...new Set(applyUpgrades(premiumPool))];
+  coderPool = [...new Set(applyUpgrades(coderPool))];
+  criticPool = [...new Set(applyUpgrades(criticPool))];
+  fastPool = [...new Set(applyUpgrades(fastPool))];
 }
 
 // Initialize pools
@@ -1457,12 +1503,27 @@ export function readBoard(
 export function buildBoardContext(
   session: SwarmSession,
   forWorkstream: string,
+  relevantWorkstreams?: string[], // WS4a: scope to assigned workstreams
 ): string {
   const messages = readBoard(session, forWorkstream);
   if (messages.length === 0) return "";
 
   const lines: string[] = ["", "--- FINDINGS FROM OTHER WORKSTREAMS ---"];
   for (const msg of messages) {
+    if (relevantWorkstreams && relevantWorkstreams.length > 0) {
+      const isRelevant = relevantWorkstreams.includes(msg.workstream);
+      if (!isRelevant) {
+        // Skip "finding" type from non-assigned workstreams entirely
+        if (msg.type === "finding") continue;
+        // For other types, include only a 1-line summary
+        const preview = msg.content.substring(0, 80);
+        const suffix = msg.content.length > 80 ? "..." : "";
+        lines.push(
+          `[${msg.workstream}] ${msg.type}: ${preview}${suffix}`,
+        );
+        continue;
+      }
+    }
     lines.push(`[${msg.type.toUpperCase()}] ${msg.content}`);
   }
   lines.push("--- END FINDINGS ---");
@@ -1789,21 +1850,19 @@ export function buildManagerPrompt(
   phaseName: string,
   history: string,
 ): string {
-  // Get cross-group findings (blue lines: L2↔L2 communication)
-  const otherGroupMsgs = session.board.filter(
-    (m) =>
-      m.group !== group.id &&
-      (m.type === "report" || m.type === "finding" || m.type === "decision"),
-  );
-  const crossGroupCtx =
-    otherGroupMsgs.length > 0
-      ? otherGroupMsgs
-          .map(
-            (m) =>
-              `[${m.level}/${m.group ?? m.workstream}] ${m.type.toUpperCase()}: ${m.content}`,
-          )
-          .join("\n")
-      : "No cross-group messages yet.";
+  // WS4b: Collect the manager's assigned workstream IDs to scope board context
+  const assignedWorkstreamIds = group.workerSlots.map((ws) => ws.workstreamId);
+
+  // WS4c: Truncate task description if > 2000 chars
+  const taskSpec =
+    session.task.length > 2000
+      ? session.task.substring(0, 2000) +
+        "\n[Task truncated — full spec available via board messages]"
+      : session.task;
+
+  // WS4: Use buildBoardContext scoped to this manager's assigned workstreams
+  const boardCtxRaw = buildBoardContext(session, group.id, assignedWorkstreamIds);
+  const crossGroupCtx = boardCtxRaw.trim() || "No cross-group messages yet.";
 
   const workerSpecs = group.workerSlots
     .map((ws, i) => {
@@ -1824,6 +1883,9 @@ export function buildManagerPrompt(
     `YOUR ROLE: L2 AGENT MANAGER — ${group.id}`,
     `PHASE: ${phaseName}`,
     "═══════════════════════════════════════════════════════════════",
+    "",
+    "## TASK",
+    taskSpec,
     "",
     "## HIERARCHY",
     "```",
@@ -2013,6 +2075,13 @@ export function buildManagerPrompt(
     "",
     "─── CRITICAL: DO NOT DO THE WORK YOURSELF ───",
     "You are a manager. Spawn workers. Only touch code to resolve worker conflicts.",
+    "",
+    "─── WS3b: TEST SUITE REQUIREMENT ───",
+    "BEFORE reporting completion, run the project's test suite if one exists:",
+    "  - Python: pytest --tb=short -q",
+    "  - Node:   npm test",
+    "  - Go:     go test ./...",
+    "Report test results in your completion report. If tests fail, fix them before submitting.",
   ].join("\n");
 }
 
