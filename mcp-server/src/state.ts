@@ -1,7 +1,3 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-
 // ── Types ──────────────────────────────────────────────────────────────
 
 export type Tier =
@@ -20,63 +16,58 @@ export type RatePreset =
   | "unlimited";
 
 // ── L3 Worker Specialization Types ────────────────────────────────────
-// Workers have ROLES (domain) AND PROVIDERS (model), creating a 2D matrix.
-// Role defines WHAT they do, provider defines HOW they think.
 
 export type WorkerRole =
-  | "coder" // Feature implementation, clean code
-  | "tester" // Unit/integration tests, coverage
-  | "reviewer" // Code review, quality checks
-  | "security" // Security audit, vulnerability scanning
-  | "architect" // System design, API contracts
-  | "documenter" // README, API docs, inline comments
-  | "debugger" // Root cause analysis, bug reproduction
-  | "devops" // CI/CD, deployment, infrastructure
-  | "meta-worker"; // Self-build: can modify open-swarm itself
+  | "coder"
+  | "tester"
+  | "reviewer"
+  | "security"
+  | "architect"
+  | "documenter"
+  | "debugger"
+  | "devops"
+  | "meta-worker";
 
 export type TaskComplexity = "trivial" | "standard" | "complex" | "review";
 
-export type WorkerMode = "implement" | "propose"; // propose = consensus mode
+export type WorkerMode = "implement" | "propose";
 
 // ── File Claims & Anti-Drift Types ────────────────────────────────────
-// File ownership system prevents conflicts between workers.
 
 export interface FileClaim {
   path: string;
-  claimedBy: string; // workstream ID
-  groupId: string; // agent group
+  claimedBy: string;
+  groupId: string;
   claimedAt: number;
   released: boolean;
 }
 
 export interface DriftCheck {
-  taskGoal: string; // Original assignment
-  outputSummary: string; // What the worker produced
-  alignmentScore: number; // 0-1: how well output matches goal
-  driftSignals: string[]; // What went off-track
+  taskGoal: string;
+  outputSummary: string;
+  alignmentScore: number;
+  driftSignals: string[];
 }
 
 // ── Pattern Memory Types ──────────────────────────────────────────────
-// Workers store successful patterns and retrieve them at task start.
 
 export interface PatternEntry {
   id: string;
-  taskType: string; // e.g., "auth-implementation", "api-endpoint"
-  approach: string; // What approach was used
-  filesInvolved: string[]; // Which files were touched
-  qualityScore: number; // Score from quality gate (must be ≥8)
-  keyDecisions: string[]; // Important decisions made
-  tags: string[]; // Searchable tags
+  taskType: string;
+  approach: string;
+  filesInvolved: string[];
+  qualityScore: number;
+  keyDecisions: string[];
+  tags: string[];
   createdAt: number;
-  sessionId: string; // Which session created this
+  sessionId: string;
 }
 
 // ── Worker Consensus Types ────────────────────────────────────────────
-// For complex tasks, L2 manager can request worker consensus before implementation.
 
 export interface ConsensusProposal {
   workstreamId: string;
-  slotId: string; // "proposer-0", "proposer-1"
+  slotId: string;
   model: string;
   content: string;
   score?: number;
@@ -90,133 +81,124 @@ export interface ConsensusState {
   topic: string;
   proposals: ConsensusProposal[];
   convergenceScore?: number;
-  selectedProposal?: string; // slotId of winner
+  selectedProposal?: string;
   status: "collecting" | "evaluating" | "decided" | "escalated";
   createdAt: number;
   resolvedAt?: number;
 }
 
-// ── Debate Protocol Types (L2 Manager Debate) ─────────────────────────
-// Based on Agent-Skills multi-agent-patterns: debate protocols, adversarial
-// critique, weighted voting, and sycophancy detection.
-// Ref: arXiv:2602.16301 §3.2 (mutual shaping through anonymous interaction)
+// ── Debate Protocol Types ─────────────────────────────────────────────
 
 export type DebatePhase =
-  | "position" // Workers take initial positions (parallel)
-  | "critique" // Workers cross-critique each other (parallel)
-  | "rebuttal" // Workers defend/revise positions (parallel)
-  | "evaluation" // Manager evaluates convergence
-  | "synthesis" // Manager synthesizes final position
-  | "escalation"; // Escalate to L1 (stalled or divergent)
+  | "position"
+  | "critique"
+  | "rebuttal"
+  | "evaluation"
+  | "synthesis"
+  | "escalation";
 
 export type DebateStatus =
-  | "pending" // Debate created, not started
-  | "active" // Currently in a round
-  | "converged" // Positions converged, synthesis available
-  | "stalled" // No progress across rounds
-  | "escalated" // Escalated to parent level
-  | "resolved"; // Final synthesis accepted
+  | "pending"
+  | "active"
+  | "converged"
+  | "stalled"
+  | "escalated"
+  | "resolved";
 
 export type DebateTrigger =
-  | "explicit" // Workstream explicitly calls for debate
-  | "disagreement" // Manager detected conflicting worker outputs
-  | "quality-split" // Quality scores diverged significantly
-  | "l1-directive"; // L1 orchestrator directed a debate
+  | "explicit"
+  | "disagreement"
+  | "quality-split"
+  | "l1-directive";
 
 export interface DebateContribution {
-  slotId: string; // Anonymous: "debater-0", "debater-1", etc.
-  agentType: string; // Actual agent type (hidden from other debaters)
-  model: string; // Actual model (hidden from other debaters)
-  phase: DebatePhase; // Which phase this contribution belongs to
-  content: string; // The position/critique/rebuttal text
+  slotId: string;
+  agentType: string;
+  model: string;
+  phase: DebatePhase;
+  content: string;
   timestamp: number;
-  score?: DebatePositionScore; // Scored by the evaluator after submission
+  score?: DebatePositionScore;
 }
 
 export interface DebateClaim {
-  id: string; // "claim-0", "claim-1", etc.
-  text: string; // The claim statement
-  sourceSlot: string; // Which debater originated it
-  agreeSlots: string[]; // Debaters who agree
-  disagreeSlots: string[]; // Debaters who disagree
+  id: string;
+  text: string;
+  sourceSlot: string;
+  agreeSlots: string[];
+  disagreeSlots: string[];
   status: "agreed" | "contested" | "undecided";
-  round: number; // Round when first extracted
+  round: number;
 }
 
 export interface ValidationCheckpoint {
   debateId: string;
-  synthesis: string; // The decision that was implemented
+  synthesis: string;
   submittedAt: number;
   validatedAt?: number;
   outcome: "pending" | "confirmed" | "failed" | "partial";
-  findings: string[]; // What was discovered post-implementation
-  reopenedDebateId?: string; // If validation failed, the new debate
+  findings: string[];
+  reopenedDebateId?: string;
 }
 
 export interface DebateRound {
   roundNumber: number;
-  phase: DebatePhase; // Current phase within this round
+  phase: DebatePhase;
   contributions: DebateContribution[];
   evaluation?: DebateEvaluation;
-  claims?: DebateClaim[]; // Per-claim consensus tracking
+  claims?: DebateClaim[];
   startedAt: number;
   completedAt?: number;
 }
 
 export interface DebatePositionScore {
-  evidenceQuality: number; // 0-3: unsupported → well-evidenced
-  reasoningClarity: number; // 0-3: confused → crystal clear
-  rebuttalEffectiveness: number; // 0-3: ignored critiques → addressed all
-  novelContribution: number; // 0-2: nothing new → breakthrough insight
-  total: number; // 0-11 sum
+  evidenceQuality: number;
+  reasoningClarity: number;
+  rebuttalEffectiveness: number;
+  novelContribution: number;
+  total: number;
   summary: string;
 }
 
 export interface DebateEvaluation {
-  convergenceScore: number; // 0-1: how close positions are to agreement
-  convergenceDelta: number; // Change from previous round (-1 to +1)
-  sycophancyScore: number; // 0-1: how much positions just agree without substance
+  convergenceScore: number;
+  convergenceDelta: number;
+  sycophancyScore: number;
   positionScores: DebatePositionScore[];
-  dominantPosition?: string; // slotId with strongest position, if clear
+  dominantPosition?: string;
   recommendation: "continue" | "converged" | "stalled" | "escalate";
-  reasoning: string; // Why this recommendation
-  synthesisReady: boolean; // Can we synthesize now?
+  reasoning: string;
+  synthesisReady: boolean;
 }
 
 export interface DebateParticipant {
-  slotId: string; // "debater-0", "debater-1"
-  workstreamId?: string; // Original workstream, if applicable
-  agentType: string; // Real agent type (not exposed to others)
-  model: string; // Real model (not exposed to others)
+  slotId: string;
+  workstreamId?: string;
+  agentType: string;
+  model: string;
 }
 
 export interface DebateState {
-  id: string; // "debate-<counter>"
-  sessionId: string; // Parent swarm session
-  groupId?: string; // If L2-level, which agent group owns this
-  topic: string; // What is being debated
-  trigger: DebateTrigger; // Why the debate was initiated
-  initiatorLevel: "L1" | "L2"; // Who started it
+  id: string;
+  sessionId: string;
+  groupId?: string;
+  topic: string;
+  trigger: DebateTrigger;
+  initiatorLevel: "L1" | "L2";
   status: DebateStatus;
-
   participants: DebateParticipant[];
-
   rounds: DebateRound[];
   currentRound: number;
-  maxRounds: number; // Default: 3, configurable
-
-  convergenceThreshold: number; // 0-1, default 0.7
-  sycophancyThreshold: number; // 0-1, above this = sycophancy detected (default 0.85)
-  minPositionScore: number; // Minimum acceptable position score (default 6/11)
-
-  fastTrack: boolean; // Skip critique/rebuttal if Round 1 convergence ≥ threshold
-  contrarian?: string; // slotId assigned as devil's advocate (auto-set when early consensus)
-  claims: DebateClaim[]; // Per-claim consensus tracking across rounds
-
-  synthesis?: string; // Final synthesized position
-  escalationContext?: string; // Context passed to parent level on escalation
-  validation?: ValidationCheckpoint; // Post-implementation validation
-
+  maxRounds: number;
+  convergenceThreshold: number;
+  sycophancyThreshold: number;
+  minPositionScore: number;
+  fastTrack: boolean;
+  contrarian?: string;
+  claims: DebateClaim[];
+  synthesis?: string;
+  escalationContext?: string;
+  validation?: ValidationCheckpoint;
   createdAt: number;
   resolvedAt?: number;
 }
@@ -251,16 +233,16 @@ export interface RateConfig {
 // Quality takes precedence over cost — use the best model for the job.
 
 interface TierRPM {
-  rpm: number;         // requests per minute for this tier
-  burstMax: number;    // max burst tokens (allows small bursts then paces)
-  intervalMs: number;  // computed: 60000 / rpm
+  rpm: number; // requests per minute for this tier
+  burstMax: number; // max burst tokens (allows small bursts then paces)
+  intervalMs: number; // computed: 60000 / rpm
   costMultiplier: number; // Copilot premium request multiplier
 }
 
 const TIER_RPM: Record<string, TierRPM> = {
-  premium: { rpm: 2, burstMax: 2, intervalMs: 30000, costMultiplier: 3 },    // Opus/codex-max: 3x
-  standard: { rpm: 10, burstMax: 5, intervalMs: 6000, costMultiplier: 1 },   // Sonnet/GPT-5.x: 1x
-  fast: { rpm: 15, burstMax: 8, intervalMs: 4000, costMultiplier: 0.33 },    // Haiku/mini/flash: ~0.33x
+  premium: { rpm: 2, burstMax: 2, intervalMs: 30000, costMultiplier: 3 }, // Opus/codex-max: 3x
+  standard: { rpm: 10, burstMax: 5, intervalMs: 6000, costMultiplier: 1 }, // Sonnet/GPT-5.x: 1x
+  fast: { rpm: 15, burstMax: 8, intervalMs: 4000, costMultiplier: 0.33 }, // Haiku/mini/flash: ~0.33x
 };
 
 class TokenBucket {
@@ -302,7 +284,11 @@ class TokenBucket {
   /** Current state for status reporting. */
   status(): { tokens: number; maxTokens: number; refillRateMs: number } {
     this.refill();
-    return { tokens: this.tokens, maxTokens: this.maxTokens, refillRateMs: this.refillRateMs };
+    return {
+      tokens: this.tokens,
+      maxTokens: this.maxTokens,
+      refillRateMs: this.refillRateMs,
+    };
   }
 }
 
@@ -321,8 +307,11 @@ function getBucket(sessionId: string, modelTier: string): TokenBucket {
 }
 
 /** Check rate limit before dispatching. Returns wait time in ms (0 = go ahead). */
-export function checkRateLimit(sessionId: string, modelId: string): { ok: boolean; retryAfterMs: number; tier: string } {
-  const entry = ALL_MODELS.find(m => m.id === modelId);
+export function checkRateLimit(
+  sessionId: string,
+  modelId: string,
+): { ok: boolean; retryAfterMs: number; tier: string } {
+  const entry = ALL_MODELS.find((m) => m.id === modelId);
   const tier = entry?.tier ?? "standard";
   const bucket = getBucket(sessionId, tier);
   const result = bucket.tryConsume();
@@ -330,12 +319,25 @@ export function checkRateLimit(sessionId: string, modelId: string): { ok: boolea
 }
 
 /** Get rate limiter status for all tiers in a session. */
-export function getRateLimitStatus(sessionId: string): Record<string, { tokens: number; maxTokens: number; rpm: number; costMultiplier: number }> {
-  const result: Record<string, { tokens: number; maxTokens: number; rpm: number; costMultiplier: number }> = {};
+export function getRateLimitStatus(
+  sessionId: string,
+): Record<
+  string,
+  { tokens: number; maxTokens: number; rpm: number; costMultiplier: number }
+> {
+  const result: Record<
+    string,
+    { tokens: number; maxTokens: number; rpm: number; costMultiplier: number }
+  > = {};
   for (const [tierName, tierConfig] of Object.entries(TIER_RPM)) {
     const bucket = getBucket(sessionId, tierName);
     const s = bucket.status();
-    result[tierName] = { tokens: s.tokens, maxTokens: s.maxTokens, rpm: tierConfig.rpm, costMultiplier: tierConfig.costMultiplier };
+    result[tierName] = {
+      tokens: s.tokens,
+      maxTokens: s.maxTokens,
+      rpm: tierConfig.rpm,
+      costMultiplier: tierConfig.costMultiplier,
+    };
   }
   return result;
 }
@@ -435,7 +437,8 @@ export type BoardMessageType =
   | "debate-critique"
   | "debate-rebuttal"
   | "debate-synthesis"
-  | "debate-escalation";
+  | "debate-escalation"
+  | "background";
 
 export interface BoardMessage {
   workstream: string; // who posted it
@@ -502,6 +505,7 @@ export interface SwarmSession {
   claims: FileClaim[]; // File ownership claims
   patterns: PatternEntry[]; // Pattern memory store
   consensuses: ConsensusState[]; // Worker consensus sessions
+  patternIdsUsed: string[]; // Pattern IDs retrieved for this session (learning loop)
   promptStore: Map<string, string>; // server-side prompt storage to avoid LLM output truncation
   maxLoops: number;
   concurrency: number; // max simultaneous L2 managers (0 = unlimited)
@@ -524,22 +528,22 @@ interface ModelEntry {
 // RANKING SOURCE: llm-stats.com Code Arena scores (Feb 2026)
 const ALL_MODELS: ModelEntry[] = [
   // Premium — high-capability, low RPM from Copilot API
-  { id: "claude-opus-4.6", tier: "premium", provider: "anthropic" },   // Code Arena #1 — 2,011
-  { id: "claude-opus-4.5", tier: "premium", provider: "anthropic" },   // Code Arena #3 — 1,561
-  { id: "gpt-5.1-codex-max", tier: "premium", provider: "openai" },   // premium API tier
-  { id: "gpt-5.3-codex", tier: "premium", provider: "openai" },       // premium API tier
+  { id: "claude-opus-4.6", tier: "premium", provider: "anthropic" }, // Code Arena #1 — 2,011
+  { id: "claude-opus-4.5", tier: "premium", provider: "anthropic" }, // Code Arena #3 — 1,561
+  { id: "gpt-5.1-codex-max", tier: "premium", provider: "openai" }, // premium API tier
+  { id: "gpt-5.3-codex", tier: "premium", provider: "openai" }, // premium API tier
   // Standard — moderate RPM. Ordered by Code Arena score.
-  { id: "gemini-3-pro-preview", tier: "standard", provider: "google" },    // Code Arena #2 — 1,563
-  { id: "gpt-5.2", tier: "standard", provider: "openai" },                // Code Arena #4 — 1,528
+  { id: "gemini-3-pro-preview", tier: "standard", provider: "google" }, // Code Arena #2 — 1,563
+  { id: "gpt-5.2", tier: "standard", provider: "openai" }, // Code Arena #4 — 1,528
   { id: "gemini-3.1-pro-preview", tier: "standard", provider: "google" }, // Code Arena #5 — 1,516
-  { id: "claude-sonnet-4.6", tier: "standard", provider: "anthropic" },   // Code Arena #9 — 1,329
-  { id: "claude-sonnet-4.5", tier: "standard", provider: "anthropic" },   // Code Arena #13 — 1,115
-  { id: "gpt-5.2-codex", tier: "standard", provider: "openai" },          // Code Arena #15 — 1,055
-  { id: "gpt-5.1-codex", tier: "standard", provider: "openai" },          // ~Code Arena #16 — ~1,039
+  { id: "claude-sonnet-4.6", tier: "standard", provider: "anthropic" }, // Code Arena #9 — 1,329
+  { id: "claude-sonnet-4.5", tier: "standard", provider: "anthropic" }, // Code Arena #13 — 1,115
+  { id: "gpt-5.2-codex", tier: "standard", provider: "openai" }, // Code Arena #15 — 1,055
+  { id: "gpt-5.1-codex", tier: "standard", provider: "openai" }, // ~Code Arena #16 — ~1,039
   // Fast — high RPM, cheap. gemini-3-flash is #7 in Code Arena (1,510) — best value.
-  { id: "gemini-3-flash-preview", tier: "fast", provider: "google" },     // Code Arena #7 — 1,510
-  { id: "claude-haiku-4.5", tier: "fast", provider: "anthropic" },        // below top 20
-  { id: "gpt-5.1-codex-mini", tier: "fast", provider: "openai" },         // below top 20
+  { id: "gemini-3-flash-preview", tier: "fast", provider: "google" }, // Code Arena #7 — 1,510
+  { id: "claude-haiku-4.5", tier: "fast", provider: "anthropic" }, // below top 20
+  { id: "gpt-5.1-codex-mini", tier: "fast", provider: "openai" }, // below top 20
 ];
 
 // ── Model Fallback System ─────────────────────────────────────────────
@@ -551,102 +555,111 @@ const ALL_MODELS: ModelEntry[] = [
 // Rule: always prefer opus-4.6 over opus-4.5 (same premium cost, 4.6 is #1 vs #3)
 const MODEL_FALLBACK_CHAINS: Record<string, string[]> = {
   // ── Premium tier ──
-  "claude-opus-4.6": [         // #1 (2,011)
-    "claude-opus-4.5",         // #3 (1,561)
+  "claude-opus-4.6": [
+    // #1 (2,011)
+    "claude-opus-4.5", // #3 (1,561)
     "gpt-5.1-codex-max",
     "gpt-5.3-codex",
-    "gemini-3-pro-preview",    // #2 (1,563) — best standard
-    "gpt-5.2",                 // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563) — best standard
+    "gpt-5.2", // #4 (1,528)
   ],
-  "claude-opus-4.5": [         // #3 (1,561) — use 4.6 first always
-    "claude-opus-4.6",         // #1 (2,011)
+  "claude-opus-4.5": [
+    // #3 (1,561) — use 4.6 first always
+    "claude-opus-4.6", // #1 (2,011)
     "gpt-5.1-codex-max",
     "gpt-5.3-codex",
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "gpt-5.2",                 // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "gpt-5.2", // #4 (1,528)
   ],
   "gpt-5.1-codex-max": [
     "gpt-5.3-codex",
-    "claude-opus-4.6",         // #1 (2,011)
-    "claude-opus-4.5",         // #3 (1,561)
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3-pro-preview",    // #2 (1,563)
+    "claude-opus-4.6", // #1 (2,011)
+    "claude-opus-4.5", // #3 (1,561)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563)
   ],
   "gpt-5.3-codex": [
     "gpt-5.1-codex-max",
-    "claude-opus-4.6",         // #1 (2,011)
-    "claude-opus-4.5",         // #3 (1,561)
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3-pro-preview",    // #2 (1,563)
+    "claude-opus-4.6", // #1 (2,011)
+    "claude-opus-4.5", // #3 (1,561)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563)
   ],
   // ── Standard tier — ordered by Code Arena score ──
-  "gemini-3-pro-preview": [    // #2 (1,563)
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3.1-pro-preview",  // #5 (1,516)
-    "claude-sonnet-4.6",       // #9 (1,329)
-    "claude-sonnet-4.5",       // #13 (1,115)
-    "gpt-5.2-codex",           // #15 (1,055)
+  "gemini-3-pro-preview": [
+    // #2 (1,563)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3.1-pro-preview", // #5 (1,516)
+    "claude-sonnet-4.6", // #9 (1,329)
+    "claude-sonnet-4.5", // #13 (1,115)
+    "gpt-5.2-codex", // #15 (1,055)
   ],
-  "gpt-5.2": [                 // #4 (1,528)
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "gemini-3.1-pro-preview",  // #5 (1,516)
-    "claude-sonnet-4.6",       // #9 (1,329)
-    "gpt-5.2-codex",           // #15 (1,055)
-    "claude-sonnet-4.5",       // #13 (1,115)
+  "gpt-5.2": [
+    // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "gemini-3.1-pro-preview", // #5 (1,516)
+    "claude-sonnet-4.6", // #9 (1,329)
+    "gpt-5.2-codex", // #15 (1,055)
+    "claude-sonnet-4.5", // #13 (1,115)
   ],
-  "gemini-3.1-pro-preview": [  // #5 (1,516)
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "gpt-5.2",                 // #4 (1,528)
-    "claude-sonnet-4.6",       // #9 (1,329)
-    "claude-sonnet-4.5",       // #13 (1,115)
-    "gpt-5.2-codex",           // #15 (1,055)
+  "gemini-3.1-pro-preview": [
+    // #5 (1,516)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "gpt-5.2", // #4 (1,528)
+    "claude-sonnet-4.6", // #9 (1,329)
+    "claude-sonnet-4.5", // #13 (1,115)
+    "gpt-5.2-codex", // #15 (1,055)
   ],
-  "claude-sonnet-4.6": [       // #9 (1,329)
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3.1-pro-preview",  // #5 (1,516)
-    "claude-sonnet-4.5",       // #13 (1,115)
-    "gpt-5.2-codex",           // #15 (1,055)
+  "claude-sonnet-4.6": [
+    // #9 (1,329)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3.1-pro-preview", // #5 (1,516)
+    "claude-sonnet-4.5", // #13 (1,115)
+    "gpt-5.2-codex", // #15 (1,055)
   ],
-  "claude-sonnet-4.5": [       // #13 (1,115)
-    "claude-sonnet-4.6",       // #9 (1,329)
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3.1-pro-preview",  // #5 (1,516)
-    "gpt-5.2-codex",           // #15 (1,055)
+  "claude-sonnet-4.5": [
+    // #13 (1,115)
+    "claude-sonnet-4.6", // #9 (1,329)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3.1-pro-preview", // #5 (1,516)
+    "gpt-5.2-codex", // #15 (1,055)
   ],
-  "gpt-5.2-codex": [           // #15 (1,055)
+  "gpt-5.2-codex": [
+    // #15 (1,055)
     "gpt-5.1-codex",
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "claude-sonnet-4.6",       // #9 (1,329)
-    "gemini-3.1-pro-preview",  // #5 (1,516)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "claude-sonnet-4.6", // #9 (1,329)
+    "gemini-3.1-pro-preview", // #5 (1,516)
   ],
   "gpt-5.1-codex": [
-    "gpt-5.2-codex",           // #15 (1,055)
-    "gpt-5.2",                 // #4 (1,528)
-    "gemini-3-pro-preview",    // #2 (1,563)
-    "claude-sonnet-4.6",       // #9 (1,329)
-    "claude-sonnet-4.5",       // #13 (1,115)
+    "gpt-5.2-codex", // #15 (1,055)
+    "gpt-5.2", // #4 (1,528)
+    "gemini-3-pro-preview", // #2 (1,563)
+    "claude-sonnet-4.6", // #9 (1,329)
+    "claude-sonnet-4.5", // #13 (1,115)
   ],
   // ── Fast tier — gemini-3-flash is Code Arena #7 (1,510!) ──
-  "gemini-3-flash-preview": [  // #7 (1,510) — best value model
+  "gemini-3-flash-preview": [
+    // #7 (1,510) — best value model
     "claude-haiku-4.5",
     "gpt-5.1-codex-mini",
-    "gemini-3-pro-preview",    // #2 (1,563) — standard fallback
-    "gemini-3.1-pro-preview",  // #5 (1,516)
+    "gemini-3-pro-preview", // #2 (1,563) — standard fallback
+    "gemini-3.1-pro-preview", // #5 (1,516)
   ],
   "claude-haiku-4.5": [
-    "gemini-3-flash-preview",  // #7 (1,510) — much higher Code Arena
+    "gemini-3-flash-preview", // #7 (1,510) — much higher Code Arena
     "gpt-5.1-codex-mini",
-    "claude-sonnet-4.5",       // #13 (1,115)
-    "claude-sonnet-4.6",       // #9 (1,329)
+    "claude-sonnet-4.5", // #13 (1,115)
+    "claude-sonnet-4.6", // #9 (1,329)
   ],
   "gpt-5.1-codex-mini": [
-    "gemini-3-flash-preview",  // #7 (1,510) — much higher Code Arena
+    "gemini-3-flash-preview", // #7 (1,510) — much higher Code Arena
     "claude-haiku-4.5",
-    "gpt-5.2",                 // #4 (1,528)
-    "gpt-5.2-codex",           // #15 (1,055)
+    "gpt-5.2", // #4 (1,528)
+    "gpt-5.2-codex", // #15 (1,055)
   ],
 };
 
@@ -1187,6 +1200,7 @@ export function createSession(
     claims: [],
     patterns: [],
     consensuses: [],
+    patternIdsUsed: [],
     promptStore: new Map(),
     maxLoops: 3,
     concurrency: resolveRateLimit(concurrency),
@@ -1493,21 +1507,21 @@ const MANAGER_AGENT_DEFS: Array<{
   // Ordered by Code Arena score, rotating providers for diversity
   {
     agent: "manager-gemini",
-    model: "gemini-3-pro-preview",       // Code Arena #2 (1,563)
+    model: "gemini-3-pro-preview", // Code Arena #2 (1,563)
     provider: "google",
   },
-  { agent: "manager-openai", model: "gpt-5.2", provider: "openai" },  // Code Arena #4 (1,528)
+  { agent: "manager-openai", model: "gpt-5.2", provider: "openai" }, // Code Arena #4 (1,528)
   {
     agent: "manager-gemini",
-    model: "gemini-3.1-pro-preview",     // Code Arena #5 (1,516)
+    model: "gemini-3.1-pro-preview", // Code Arena #5 (1,516)
     provider: "google",
   },
   {
     agent: "manager-anthropic",
-    model: "claude-sonnet-4.6",          // Code Arena #9 (1,329)
+    model: "claude-sonnet-4.6", // Code Arena #9 (1,329)
     provider: "anthropic",
   },
-  { agent: "manager-openai", model: "gpt-5.2-codex", provider: "openai" },  // Code Arena #15 (1,055)
+  { agent: "manager-openai", model: "gpt-5.2-codex", provider: "openai" }, // Code Arena #15 (1,055)
 ];
 
 /** Get a validated manager definition — resolves model with fallback */
@@ -1850,11 +1864,11 @@ export function buildManagerPrompt(
     "```",
     "",
     "Post types:",
-    '  - **plan**: Post your plan BEFORE dispatching workers (so other managers see it)',
-    '  - **finding**: Discovery that other managers should know about',
-    '  - **status**: Progress update for the boss',
-    '  - **blocker**: Something blocking your work — boss needs to decide',
-    '  - **report**: Your final synthesized report',
+    "  - **plan**: Post your plan BEFORE dispatching workers (so other managers see it)",
+    "  - **finding**: Discovery that other managers should know about",
+    "  - **status**: Progress update for the boss",
+    "  - **blocker**: Something blocking your work — boss needs to decide",
+    "  - **report**: Your final synthesized report",
     "",
     "#### Reading the board (everyone → you)",
     "```",
@@ -1948,10 +1962,10 @@ export function buildManagerPrompt(
     "   ⚠️ Do NOT launch all workers at once — this will trigger API rate limiting.",
     "   Launch in batches of 2, with a sleep between batches:",
     "   ```",
-    '   # Batch 1 — launch 2 workers in same message',
+    "   # Batch 1 — launch 2 workers in same message",
     '   task(subagent_type="<agent>", description="<task>", prompt="<instructions>")',
     '   task(subagent_type="<agent>", description="<task>", prompt="<instructions>")',
-    '   # Wait for rate limit cooldown',
+    "   # Wait for rate limit cooldown",
     '   bash("sleep 8")',
     "   ```",
     "   In each worker prompt, ALWAYS include:",
@@ -3321,130 +3335,6 @@ export function checkDrift(taskGoal: string, output: string): DriftCheck {
     output.substring(0, 200) + (output.length > 200 ? "..." : "");
 
   return { taskGoal, outputSummary, alignmentScore, driftSignals };
-}
-
-// ── Pattern Memory ────────────────────────────────────────────────────
-// Store and retrieve successful patterns for worker reuse.
-// Patterns persist to disk so they survive server restarts.
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const DATA_DIR = join(__dirname, "..", "data");
-const PATTERNS_FILE = join(DATA_DIR, "patterns.json");
-
-let patternCounter = 0;
-
-// Global pattern store (shared across sessions)
-let globalPatterns: PatternEntry[] = [];
-
-export function loadPatterns(): void {
-  try {
-    if (existsSync(PATTERNS_FILE)) {
-      const raw = readFileSync(PATTERNS_FILE, "utf-8");
-      globalPatterns = JSON.parse(raw) as PatternEntry[];
-      // Restore counter from highest existing ID
-      for (const p of globalPatterns) {
-        const match = p.id.match(/pattern-(\d+)/);
-        if (match) {
-          const num = parseInt(match[1], 10);
-          if (num > patternCounter) patternCounter = num;
-        }
-      }
-    }
-  } catch {
-    globalPatterns = [];
-  }
-}
-
-function savePatterns(): void {
-  try {
-    mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(
-      PATTERNS_FILE,
-      JSON.stringify(globalPatterns, null, 2),
-      "utf-8",
-    );
-  } catch {
-    // Silent fail — disk persistence is best-effort
-  }
-}
-
-// Load on module init
-loadPatterns();
-
-export function storePattern(
-  session: SwarmSession,
-  taskType: string,
-  approach: string,
-  filesInvolved: string[],
-  qualityScore: number,
-  keyDecisions: string[],
-  tags: string[],
-): PatternEntry {
-  const entry: PatternEntry = {
-    id: `pattern-${++patternCounter}`,
-    taskType,
-    approach,
-    filesInvolved,
-    qualityScore,
-    keyDecisions,
-    tags,
-    createdAt: Date.now(),
-    sessionId: session.id,
-  };
-  session.patterns.push(entry);
-  // Persist to global store
-  globalPatterns.push(entry);
-  savePatterns();
-  return entry;
-}
-
-export function searchPatterns(
-  session: SwarmSession,
-  query: string,
-  limit: number = 5,
-): PatternEntry[] {
-  const queryTokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 2);
-
-  // Search global patterns (cross-session), not just current session
-  const scored = globalPatterns.map((p) => {
-    const searchable = [p.taskType, p.approach, ...p.tags, ...p.keyDecisions]
-      .join(" ")
-      .toLowerCase();
-    let score = 0;
-    for (const token of queryTokens) {
-      if (searchable.includes(token)) score++;
-    }
-    return { pattern: p, score };
-  });
-
-  return scored
-    .filter((s) => s.score > 0)
-    .sort(
-      (a, b) =>
-        b.score - a.score || b.pattern.qualityScore - a.pattern.qualityScore,
-    )
-    .slice(0, limit)
-    .map((s) => s.pattern);
-}
-
-export function buildPatternContext(patterns: PatternEntry[]): string {
-  if (patterns.length === 0) return "";
-  const lines = ["", "--- RELEVANT PATTERNS FROM PRIOR TASKS ---"];
-  for (const p of patterns) {
-    lines.push(`[${p.taskType}] Score: ${p.qualityScore}/10`);
-    lines.push(`  Approach: ${p.approach}`);
-    if (p.keyDecisions.length > 0) {
-      lines.push(`  Key decisions: ${p.keyDecisions.join("; ")}`);
-    }
-    lines.push(`  Files: ${p.filesInvolved.join(", ")}`);
-    lines.push("");
-  }
-  lines.push("--- END PATTERNS ---");
-  return lines.join("\n");
 }
 
 // ── Worker Consensus Protocol ─────────────────────────────────────────

@@ -83,14 +83,25 @@ import {
   getClaimsForWorkstream,
   getAllActiveClaims,
   checkDrift,
-  storePattern,
-  searchPatterns,
-  buildPatternContext,
   createConsensus,
   getConsensus,
   submitProposal,
   evaluateConsensus,
 } from "./state.js";
+import { memoryStore } from "./memory.js";
+import {
+  retrieve,
+  judge,
+  distill,
+  consolidate,
+  route,
+  getStats,
+} from "./learning.js";
+import {
+  workerRegistry,
+  TRIGGER_DESCRIPTIONS,
+  WORKER_TYPE_DESCRIPTIONS,
+} from "./workers.js";
 
 // Anti-drift configuration
 const DRIFT_THRESHOLD = 0.4; // Reject submissions below this alignment score (0-1)
@@ -177,13 +188,13 @@ function computeConvergence(
 
 // ── swarm_init ────────────────────────────────────────────────────────
 
-export function handleSwarmInit(args: {
+export async function handleSwarmInit(args: {
   task: string;
   tier?: Tier;
   fileCount?: number;
   executionMode?: ExecutionMode;
   concurrency?: number | string; // number or preset name
-}): ToolResult {
+}): Promise<ToolResult> {
   const { task, fileCount } = args;
   if (!task) return err("Missing required field: task");
 
@@ -244,6 +255,24 @@ export function handleSwarmInit(args: {
     recommendedPlan: matchedPreset ? matchedPreset[1].plan : "depends on usage",
   };
 
+  // Auto-retrieve relevant patterns from learning memory
+  let priorPatterns:
+    | { matchCount: number; injectionContext: string; patternIds: string[] }
+    | undefined;
+  try {
+    const retrieved = await retrieve(session.id, task);
+    if (retrieved.patterns.length > 0) {
+      session.patternIdsUsed = retrieved.patternIds;
+      priorPatterns = {
+        matchCount: retrieved.patterns.length,
+        injectionContext: retrieved.injectionContext,
+        patternIds: retrieved.patternIds,
+      };
+    }
+  } catch {
+    // Learning retrieval is best-effort
+  }
+
   return ok({
     sessionId: session.id,
     tier,
@@ -252,6 +281,7 @@ export function handleSwarmInit(args: {
     executionMode: session.executionMode,
     rateLimit: rateLimitInfo,
     apiRateLimits: getRateLimitStatus(session.id),
+    priorPatterns,
     availablePresets: Object.fromEntries(
       Object.entries(RATE_PRESETS).map(([k, v]) => [
         k,
@@ -826,10 +856,10 @@ export function handleSwarmStatus(args: { sessionId: string }): ToolResult {
   });
 }
 
-export function handleSwarmGate(args: {
+export async function handleSwarmGate(args: {
   sessionId: string;
   scores: Array<{ workstream: string; score: number; criticalIssues: number }>;
-}): ToolResult {
+}): Promise<ToolResult> {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
@@ -865,9 +895,48 @@ export function handleSwarmGate(args: {
   // Compute convergence metrics
   const convergence = computeConvergence(session, currentRound, args.scores);
 
-  // Evaluate gate
+  // ── Learning Loop: JUDGE ──
+  let learningOutcome: { avgScore: number; shouldDistill: boolean } | undefined;
+  let distillResult: { action: string; patternId: string } | undefined;
+  let backgroundWorkers:
+    | Array<{ agent: string; prompt: string; model: string; workerId: string }>
+    | undefined;
+  try {
+    const judgeResult = await judge(session, args.scores);
+    learningOutcome = {
+      avgScore: judgeResult.avgScore,
+      shouldDistill: judgeResult.shouldDistill,
+    };
+
+    // Auto-distill on high scores
+    if (judgeResult.shouldDistill) {
+      distillResult = await distill(session);
+    }
+  } catch {
+    // Learning is best-effort
+  }
+
+  // ── Worker Triggers ──
   const failing = args.scores.filter((s) => s.score < 7);
   const allPass = failing.length === 0;
+  const triggerEvent = allPass ? "gate_pass" : "gate_fail";
+  try {
+    const triggeredWorkers = workerRegistry.checkTriggers(
+      session.id,
+      triggerEvent,
+    );
+    if (triggeredWorkers.length > 0) {
+      const allFiles = session.workstreams.flatMap((ws) => ws.files);
+      backgroundWorkers = triggeredWorkers.map((w) =>
+        workerRegistry.buildDispatch(w, {
+          files: allFiles,
+          sessionTask: session.task,
+        }),
+      );
+    }
+  } catch {
+    // Worker triggers are best-effort
+  }
 
   if (allPass) {
     phase.status = "done";
@@ -878,6 +947,9 @@ export function handleSwarmGate(args: {
       round: currentRound,
       scores: args.scores,
       convergence,
+      learning: learningOutcome,
+      distilled: distillResult,
+      backgroundWorkers,
       nextAction: `All scores ≥ 7. Call swarm_next with sessionId "${session.id}" to continue.`,
     });
   }
@@ -2199,7 +2271,7 @@ export function handleSwarmClaim(args: {
 // ── swarm_memory ──────────────────────────────────────────────────────
 // Pattern memory for workers to store and retrieve successful approaches.
 
-export function handleSwarmMemory(args: {
+export async function handleSwarmMemory(args: {
   sessionId: string;
   action: "search" | "store" | "list";
   query?: string;
@@ -2210,7 +2282,7 @@ export function handleSwarmMemory(args: {
   keyDecisions?: string[];
   tags?: string[];
   limit?: number;
-}): ToolResult {
+}): Promise<ToolResult> {
   const session = getSession(args.sessionId);
   if (!session) return err(`Session not found: ${args.sessionId}`);
 
@@ -2218,24 +2290,28 @@ export function handleSwarmMemory(args: {
     case "search": {
       if (!args.query) return err("query required for search action");
 
-      const patterns = searchPatterns(session, args.query, args.limit ?? 5);
-      const context = buildPatternContext(patterns);
+      const results = await memoryStore.searchSemantic(
+        args.query,
+        args.limit ?? 5,
+      );
 
       return ok({
-        matchCount: patterns.length,
-        patterns: patterns.map((p) => ({
+        matchCount: results.length,
+        patterns: results.map((p) => ({
           id: p.id,
           taskType: p.taskType,
           approach: p.approach,
           qualityScore: p.qualityScore,
+          confidence: p.confidence,
+          useCount: p.useCount,
           tags: p.tags,
           keyDecisions: p.keyDecisions,
           filesInvolved: p.filesInvolved,
+          relevance: p.relevance,
         })),
-        injectionContext: context,
         nextAction:
-          patterns.length > 0
-            ? `Found ${patterns.length} relevant pattern(s). Inject the context into worker prompts for guidance.`
+          results.length > 0
+            ? `Found ${results.length} relevant pattern(s) via semantic search. Inject context into worker prompts.`
             : `No matching patterns found. Worker will start fresh.`,
       });
     }
@@ -2251,34 +2327,42 @@ export function handleSwarmMemory(args: {
         );
       }
 
-      const entry = storePattern(
-        session,
-        args.taskType,
-        args.approach,
-        args.filesInvolved ?? [],
-        args.qualityScore,
-        args.keyDecisions ?? [],
-        args.tags ?? [],
-      );
+      const entry = await memoryStore.storePattern({
+        taskType: args.taskType,
+        approach: args.approach,
+        filesInvolved: args.filesInvolved ?? [],
+        qualityScore: args.qualityScore,
+        keyDecisions: args.keyDecisions ?? [],
+        tags: args.tags ?? [],
+        confidence: 1.0,
+        useCount: 0,
+        lastUsedAt: null,
+        expiresAt: null,
+        createdAt: Date.now(),
+        sessionId: session.id,
+      });
 
       return ok({
         patternId: entry.id,
         taskType: entry.taskType,
         qualityScore: entry.qualityScore,
-        nextAction: `✅ Pattern "${entry.id}" stored (score: ${entry.qualityScore}/10). Available for future workers.`,
+        nextAction: `Pattern "${entry.id}" stored with semantic embedding (score: ${entry.qualityScore}/10). Available for future workers.`,
       });
     }
 
     case "list": {
+      const allPatterns = memoryStore.getAllPatterns();
       return ok({
-        totalPatterns: session.patterns.length,
-        patterns: session.patterns.map((p) => ({
+        totalPatterns: allPatterns.length,
+        patterns: allPatterns.map((p) => ({
           id: p.id,
           taskType: p.taskType,
           qualityScore: p.qualityScore,
+          confidence: p.confidence,
+          useCount: p.useCount,
           tags: p.tags,
         })),
-        nextAction: `${session.patterns.length} pattern(s) in memory.`,
+        nextAction: `${allPatterns.length} pattern(s) in persistent memory.`,
       });
     }
 
@@ -2434,5 +2518,273 @@ export function handleSwarmConsensus(args: {
 
     default:
       return err(`Unknown consensus action: ${args.action}`);
+  }
+}
+
+// ── swarm_learn ───────────────────────────────────────────────────────
+// Self-learning loop: retrieve, judge, distill, consolidate, route, stats.
+
+export async function handleSwarmLearn(args: {
+  sessionId: string;
+  action: "retrieve" | "judge" | "distill" | "consolidate" | "route" | "stats";
+  taskDescription?: string;
+  scores?: Array<{ workstream: string; score: number; criticalIssues: number }>;
+  metadata?: {
+    modelUsed?: string;
+    durationMs?: number;
+    whatWorked?: string[];
+    whatFailed?: string[];
+  };
+}): Promise<ToolResult> {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  switch (args.action) {
+    case "retrieve": {
+      const desc = args.taskDescription ?? session.task;
+      const result = await retrieve(session.id, desc);
+      session.patternIdsUsed = result.patternIds;
+      return ok({
+        matchCount: result.patterns.length,
+        patternIds: result.patternIds,
+        injectionContext: result.injectionContext,
+        nextAction:
+          result.patterns.length > 0
+            ? `Found ${result.patterns.length} relevant pattern(s). Inject into worker prompts.`
+            : "No prior patterns found.",
+      });
+    }
+
+    case "judge": {
+      if (!args.scores) return err("scores required for judge action");
+      const result = await judge(session, args.scores, args.metadata);
+      return ok({
+        outcomeId: result.outcome.id,
+        avgScore: result.avgScore,
+        shouldDistill: result.shouldDistill,
+        nextAction: result.shouldDistill
+          ? `Score ${result.avgScore} >= 8. Call swarm_learn with action="distill" to extract pattern.`
+          : `Score ${result.avgScore} recorded. No pattern extraction needed.`,
+      });
+    }
+
+    case "distill": {
+      const result = await distill(session);
+      return ok({
+        action: result.action,
+        patternId: result.patternId,
+        nextAction:
+          result.action === "stored"
+            ? `New pattern "${result.patternId}" extracted and stored.`
+            : `Near-duplicate found. Boosted confidence on "${result.patternId}".`,
+      });
+    }
+
+    case "consolidate": {
+      const result = await consolidate();
+      return ok({
+        ...result,
+        nextAction: `Consolidated: ${result.merged} merged, ${result.pruned} pruned, ${result.decayed} decayed, ${result.expired} expired. ${result.remaining} patterns remaining.`,
+      });
+    }
+
+    case "route": {
+      const desc = args.taskDescription ?? session.task;
+      const result = await route(desc);
+      return ok({
+        recommendedModel: result.model,
+        hints: result.hints,
+        confidence: result.confidence,
+        nextAction: result.model
+          ? `Recommend model "${result.model}" (confidence: ${result.confidence}).`
+          : "No strong model recommendation. Use default.",
+      });
+    }
+
+    case "stats": {
+      return ok(getStats());
+    }
+
+    default:
+      return err(`Unknown learn action: ${args.action}`);
+  }
+}
+
+// ── swarm_watch ───────────────────────────────────────────────────────
+// Background worker subscription management.
+
+export function handleSwarmWatch(args: {
+  sessionId: string;
+  action: "subscribe" | "list" | "check";
+  workerType?: string;
+  triggerEvent?: string;
+  config?: Record<string, unknown>;
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  switch (args.action) {
+    case "subscribe": {
+      if (!args.workerType) return err("workerType required for subscribe");
+      if (!args.triggerEvent) return err("triggerEvent required for subscribe");
+
+      const validTypes = ["audit", "optimize", "testgaps", "document"];
+      if (!validTypes.includes(args.workerType)) {
+        return err(
+          `Invalid workerType: "${args.workerType}". Valid: ${validTypes.join(", ")}`,
+        );
+      }
+      const validTriggers = ["gate_pass", "gate_fail", "session_end", "manual"];
+      if (!validTriggers.includes(args.triggerEvent)) {
+        return err(
+          `Invalid triggerEvent: "${args.triggerEvent}". Valid: ${validTriggers.join(", ")}`,
+        );
+      }
+
+      const record = workerRegistry.subscribe(
+        session.id,
+        args.workerType as any,
+        args.triggerEvent as any,
+        args.config,
+      );
+      return ok({
+        workerId: record.id,
+        workerType: record.workerType,
+        triggerEvent: record.triggerEvent,
+        description: WORKER_TYPE_DESCRIPTIONS[record.workerType],
+        triggerDescription: TRIGGER_DESCRIPTIONS[record.triggerEvent],
+        nextAction: `Worker "${record.id}" subscribed to "${record.triggerEvent}" events.`,
+      });
+    }
+
+    case "list": {
+      const subs = workerRegistry.getSubscriptions(session.id);
+      return ok({
+        totalSubscriptions: subs.length,
+        subscriptions: subs.map((w) => ({
+          id: w.id,
+          workerType: w.workerType,
+          triggerEvent: w.triggerEvent,
+          status: w.status,
+          description: WORKER_TYPE_DESCRIPTIONS[w.workerType],
+        })),
+        availableTypes: Object.entries(WORKER_TYPE_DESCRIPTIONS).map(
+          ([k, v]) => ({ type: k, description: v }),
+        ),
+        availableTriggers: Object.entries(TRIGGER_DESCRIPTIONS).map(
+          ([k, v]) => ({ event: k, description: v }),
+        ),
+      });
+    }
+
+    case "check": {
+      if (!args.triggerEvent) return err("triggerEvent required for check");
+      const ready = workerRegistry.checkTriggers(
+        session.id,
+        args.triggerEvent as any,
+      );
+      return ok({
+        readyWorkers: ready.length,
+        workers: ready.map((w) => ({
+          id: w.id,
+          workerType: w.workerType,
+          description: WORKER_TYPE_DESCRIPTIONS[w.workerType],
+        })),
+      });
+    }
+
+    default:
+      return err(`Unknown watch action: ${args.action}`);
+  }
+}
+
+// ── swarm_worker ──────────────────────────────────────────────────────
+// Manual worker dispatch and results retrieval.
+
+export function handleSwarmWorker(args: {
+  sessionId: string;
+  action: "dispatch" | "status" | "results" | "complete";
+  workerType?: string;
+  workerId?: string;
+  files?: string[];
+  context?: string;
+  findings?: string[];
+}): ToolResult {
+  const session = getSession(args.sessionId);
+  if (!session) return err(`Session not found: ${args.sessionId}`);
+
+  switch (args.action) {
+    case "dispatch": {
+      if (!args.workerType) return err("workerType required for dispatch");
+
+      const record = workerRegistry.subscribe(
+        session.id,
+        args.workerType as any,
+        "manual",
+      );
+      const dispatch = workerRegistry.buildDispatch(record, {
+        files: args.files,
+        sessionTask: args.context ?? session.task,
+      });
+
+      return ok({
+        workerId: dispatch.workerId,
+        taskCall: {
+          subagent_type: dispatch.agent,
+          description: `${WORKER_TYPE_DESCRIPTIONS[args.workerType as keyof typeof WORKER_TYPE_DESCRIPTIONS] ?? args.workerType} worker`,
+          prompt: dispatch.prompt,
+          model: dispatch.model,
+        },
+        nextAction: `Dispatch worker with task() using the taskCall params above. After completion, call swarm_worker with action="complete" and the findings.`,
+      });
+    }
+
+    case "status": {
+      const subs = workerRegistry.getSubscriptions(session.id);
+      return ok({
+        workers: subs.map((w) => ({
+          id: w.id,
+          workerType: w.workerType,
+          status: w.status,
+          completedAt: w.completedAt,
+          findingsCount: w.findings.length,
+        })),
+      });
+    }
+
+    case "results": {
+      if (!args.workerId) return err("workerId required for results");
+      const findings = workerRegistry.getFindings(args.workerId);
+      return ok({
+        workerId: args.workerId,
+        findings,
+        nextAction:
+          findings.length > 0
+            ? `Worker produced ${findings.length} finding(s). Review and act on them.`
+            : "No findings recorded for this worker.",
+      });
+    }
+
+    case "complete": {
+      if (!args.workerId) return err("workerId required for complete");
+      if (!args.findings) return err("findings required for complete");
+
+      workerRegistry.complete(args.workerId, args.findings);
+
+      // Post findings to board
+      for (const finding of args.findings) {
+        postToBoard(session, "background-worker", "background", finding, "L1");
+      }
+
+      return ok({
+        workerId: args.workerId,
+        status: "completed",
+        findingsPosted: args.findings.length,
+        nextAction: `Worker completed. ${args.findings.length} finding(s) posted to board.`,
+      });
+    }
+
+    default:
+      return err(`Unknown worker action: ${args.action}`);
   }
 }

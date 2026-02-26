@@ -327,7 +327,10 @@
         "swarm_relay": true,
         "swarm_board": true,
         "swarm_dispatch": true,
-        "swarm_throttle": true
+        "swarm_throttle": true,
+        "swarm_learn": true,
+        "swarm_watch": true,
+        "swarm_worker": true
       }
     },
     "manager-anthropic": {
@@ -431,16 +434,9 @@
   "mcp": {
     "mcpu": {
       "type": "local",
-      "command": [
-        "mcpu-mcp",
-        "--auto-disconnect",
-        "--idle-timeout",
-        "10"
-      ]
+      "command": ["mcpu-mcp", "--auto-disconnect", "--idle-timeout", "10"]
     }
   },
   "small_model": "github-copilot/gpt-5.1-codex-mini",
-  "instructions": [
-    "~/.config/opencode/INSTRUCTIONS.md"
-  ]
+  "instructions": ["~/.config/opencode/INSTRUCTIONS.md"]
 }

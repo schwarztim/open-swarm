@@ -12,11 +12,14 @@
     "dev": "tsc && node dist/index.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "latest",
+    "better-sqlite3": "^12.6.2",
     "zod": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "@types/node": "latest"
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "latest",
+    "typescript": "latest"
   }
 }
