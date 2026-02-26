@@ -65,43 +65,73 @@ graph LR
 
 ## 🛫 Quick Start
 
-### Option A: OpenCode (Recommended — enforced orchestration)
+### Prerequisites
+
+| Tool | Required | Install |
+|------|----------|---------|
+| [OpenCode](https://github.com/anomalyco/opencode) | ✅ | `brew install opencode` |
+| [MCPU](https://github.com/nicosql/mcpu) | ✅ (for MCP routing) | `npm install -g mcpu` |
+| GitHub Copilot subscription | ✅ | Enterprise, Business, or Pro+ |
+| Node.js ≥ 18 | ✅ | `brew install node` |
+
+### One-Shot Setup
 
 ```bash
-# Install OpenCode
-brew install opencode
-
-# Authenticate with GitHub Copilot
-opencode auth login  # Select "GitHub Copilot" → device code flow
-
-# Clone and enter the repo
+# 1. Clone the repo
 git clone https://github.com/schwarztim/open-swarm.git
 cd open-swarm
 
-# Build and start the MCP server
-cd mcp-server && npm install && npm run build && npm start &
+# 2. Build the MCP server
+cd mcp-server && npm install && npm run build && cd ..
+
+# 3. Deploy agent configs (copies agents + opencode.json to your system)
+./setup.sh
+
+# 4. Authenticate with GitHub Copilot (if not already done)
+opencode auth login   # Select "GitHub Copilot" → device code flow
+
+# 5. Start the MCP server (background)
+cd mcp-server && npm start &
 cd ..
 
-# Launch opencode — it reads opencode/opencode.json automatically
-# Agent definitions, instructions, and MCP config are all in the repo
+# 6. Launch the swarm!
 opencode --agent swarm
 ```
 
-> **Note:** All agent configs live in `opencode/opencode.json` with prompts referencing
-> `opencode/agents/*.md`. No manual copying to `~/.config/opencode/` is needed —
-> opencode reads the project-local config when launched from the repo root.
+That's it. Type your task and watch it spawn L2 managers and L3 workers.
 
-#### Alternative: Global Install (for use outside this repo)
+### What `setup.sh` Does
+
+The setup script deploys the complete agent configuration:
+
+```
+opencode/agents/*.md     →  ~/.config/opencode/agents/
+opencode/opencode.json   →  ~/.config/opencode/opencode.json (merged)
+```
+
+It registers the MCP server with MCPU, sets up all 15 agents (1 orchestrator +
+3 managers + 11 workers) with correct model assignments, rate pacing, and
+board-based communication tools.
+
+> **Already have a `~/.config/opencode/opencode.json`?** The setup script will
+> back it up to `opencode.json.backup` before merging.
+
+### Manual Setup (if you prefer)
 
 ```bash
 # Copy agent prompts to global config
 mkdir -p ~/.config/opencode/agents
 cp opencode/agents/*.md ~/.config/opencode/agents/
 
-# Merge agent registrations from opencode/opencode.json into
-# ~/.config/opencode/opencode.json (copy the entire "agent" section)
-# Update prompt paths from {file:opencode/agents/...} to
-# {file:~/.config/opencode/agents/...}
+# Copy the opencode config (or merge manually if you have existing config)
+cp opencode/opencode.json ~/.config/opencode/opencode.json
+
+# Update prompt paths to point to global config
+sed -i '' 's|{file:opencode/agents/|{file:~/.config/opencode/agents/|g' \
+  ~/.config/opencode/opencode.json
+
+# Register the MCP server with MCPU
+mcpu add open-swarm --type http --url http://127.0.0.1:38546/mcp
 
 # Add the swarm alias
 echo 'alias swarm="opencode --agent swarm"' >> ~/.zshrc

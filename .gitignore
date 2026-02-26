@@ -1,0 +1,38 @@
+# Runtime / generated
+node_modules/
+dist/
+*.js
+*.js.map
+*.d.ts
+!mcp-server/test/**
+
+# Claude Flow runtime
+.claude-flow/daemon-state.json
+.claude-flow/daemon.pid
+.claude-flow/daemon.log
+.claude-flow/metrics/
+.claude-flow/security/
+.claude-flow/agents/
+
+# Claude Code agent outputs (generated at runtime)
+.claude/agent-outputs/
+.claude/agents/
+.claude/archive/
+.claude/commands/
+.claude/errors/
+.claude/settings.local.json
+
+# Swarm runtime data
+.swarm/memory.db
+.swarm/memory.db-journal
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temp / prompt files
+CLAUDE-FLOW-FIX-PROMPT.md

@@ -429,13 +429,6 @@
     "threshold": 0.6
   },
   "mcp": {
-    "mcp-marketplace": {
-      "type": "local",
-      "command": [
-        "node",
-        "/Users/timothy.schwarz/.config/opencode/mcps/mcp-marketplace/node_modules/opencode-mcp-marketplace/dist/index.js"
-      ]
-    },
     "mcpu": {
       "type": "local",
       "command": [
