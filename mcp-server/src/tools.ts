@@ -406,18 +406,23 @@ export function handleSwarmNext(args: {
         `For EACH managerCall:`,
         `  1. Call swarm_dispatch(sessionId="${session.id}", promptRef=managerCall.promptRef, subagent_type=managerCall.subagent_type, description=managerCall.description, model=managerCall.model)`,
         `  2. Call task(subagent_type=result.subagent_type, description=result.description, prompt=result.prompt, model=result.model)`,
-        `  3. After every 2 dispatches: bash("sleep 8") — GitHub Copilot rate limit pacing`,
+        `  3. After every 2 dispatches: bash("sleep 8") — rate limit pacing`,
         ``,
-        `After dispatching, MONITOR the status board:`,
-        `  bash("cat ${statusBoard} 2>/dev/null || echo 'No updates yet'")`,
+        `WHILE MANAGERS ARE WORKING — MONITOR THE BOARD:`,
+        `  swarm_board(sessionId="${session.id}")  // Full board — see all L2 plans, L3 findings, blockers`,
+        `  Look for:`,
+        `    - L2 blocker → YOU make the decision, post swarm_relay(type="decision")`,
+        `    - L2↔L2 disagreement → spin up swarm_debate between the managers`,
+        `    - L3 blockers that managers haven't resolved → escalate to the relevant manager`,
         ``,
         `When each manager task() completes:`,
-        `  4. Read the manager's report (the task output)`,
-        `  5. Check for ESCALATIONS — if any, YOU (the boss) make the decision`,
-        `  6. Call swarm_submit(sessionId="${session.id}", output=<manager report>)`,
-        `  7. Call swarm_relay to post cross-team findings for the next group`,
+        `  4. Read the manager's report (task output + board posts)`,
+        `  5. Check the board for unresolved blockers: swarm_board(sessionId="${session.id}", types=["blocker"])`,
+        `  6. If ESCALATIONS: YOU (the boss) make the decision — post swarm_relay(type="decision")`,
+        `  7. Call swarm_submit(sessionId="${session.id}", output=<manager report>)`,
+        `  8. Cross-team findings are already on the board — next wave of managers will see them`,
         remainingPending > 0
-          ? `  8. Call swarm_next again — the server will release the next wave of managers.`
+          ? `  9. Call swarm_next again — the server will release the next wave of managers.`
           : "",
       ]
         .filter(Boolean)
