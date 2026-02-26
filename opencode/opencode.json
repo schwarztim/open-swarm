@@ -46,7 +46,7 @@
     },
     "worker": {
       "name": "worker",
-      "description": "Default fallback worker. Use @worker-anthropic, @worker-openai, @worker-gemini for provider-specific dispatch.",
+      "description": "Default fallback worker. Use @worker-anthropic for provider-specific dispatch.",
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.3,
@@ -64,7 +64,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-coder": {
@@ -87,7 +88,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-tester": {
@@ -110,7 +112,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-security": {
@@ -133,7 +136,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-architect": {
@@ -156,7 +160,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-documenter": {
@@ -179,7 +184,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-debugger": {
@@ -202,7 +208,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-anthropic": {
@@ -225,53 +232,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
-      }
-    },
-    "worker-openai": {
-      "name": "worker-openai",
-      "description": "OpenAI provider worker — routes here when provider=openai",
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.2-codex",
-      "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-openai.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true
-      }
-    },
-    "worker-gemini": {
-      "name": "worker-gemini",
-      "description": "Google provider worker — routes here when provider=google",
-      "mode": "subagent",
-      "model": "github-copilot/gemini-3-pro-preview",
-      "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-gemini.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "worker-haiku": {
@@ -294,7 +256,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     },
     "swarm": {
@@ -330,14 +293,15 @@
         "swarm_throttle": true,
         "swarm_learn": true,
         "swarm_watch": true,
-        "swarm_worker": true
+        "swarm_worker": true,
+        "swarm_validate": true
       }
     },
     "manager-anthropic": {
       "name": "manager-anthropic",
       "description": "L2 Agent Manager (Anthropic) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
       "mode": "subagent",
-      "model": "github-copilot/claude-sonnet-4.5",
+      "model": "github-copilot/claude-sonnet-4.6",
       "temperature": 0.2,
       "prompt": "{file:~/.config/opencode/agents/manager.md}",
       "tools": {
@@ -353,53 +317,8 @@
         "diagnostics": true,
         "task": true,
         "swarm_relay": true,
-        "swarm_board": true
-      }
-    },
-    "manager-openai": {
-      "name": "manager-openai",
-      "description": "L2 Agent Manager (OpenAI) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.2-codex",
-      "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/manager.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true
-      }
-    },
-    "manager-gemini": {
-      "name": "manager-gemini",
-      "description": "L2 Agent Manager (Google) — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator",
-      "mode": "subagent",
-      "model": "github-copilot/gemini-3-pro-preview",
-      "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/manager.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true
+        "swarm_board": true,
+        "swarm_validate": true
       }
     }
   },
