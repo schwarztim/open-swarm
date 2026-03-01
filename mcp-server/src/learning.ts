@@ -203,6 +203,9 @@ export async function consolidate(mergeThreshold: number = 0.9): Promise<{
   // 4. Clean expired patterns
   const expired = memoryStore.cleanExpired();
 
+  // 5. Clean up old outcomes and workers (> 30 days)
+  memoryStore.cleanupOldData(30);
+
   return {
     merged,
     pruned,

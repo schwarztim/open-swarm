@@ -1,7 +1,7 @@
 # Open Swarm — Architecture Document
 
 > **Author:** Tim Schwarz  
-> **Version:** 1.0 — February 2026  
+> **Version:** 2.0 — February 2026  
 > **Status:** Living document — updated as the system evolves
 
 ---
@@ -80,7 +80,7 @@ The **single top-level agent** that owns the entire task lifecycle. It never wri
 8. Synthesizes worker outputs into a final report
 9. Posts the report to the board for L1
 
-**Agents:** `@manager-anthropic`, `@manager-openai`, `@manager-gemini`
+**Agent:** `@manager-anthropic` (claude-sonnet-4.6)
 
 ### 2.3 L3 — Workers
 
@@ -93,7 +93,7 @@ The **single top-level agent** that owns the entire task lifecycle. It never wri
 5. Posts blockers if stuck — never guesses
 6. Returns output to their manager
 
-**Agents:** `@worker-coder`, `@worker-tester`, `@worker-security`, `@worker-architect`, `@worker-documenter`, `@worker-debugger`, plus provider-specific variants (`@worker-anthropic`, `@worker-openai`, `@worker-gemini`, `@worker-haiku`)
+**Agents:** See §7 for the full 15-agent roster.
 
 ---
 
@@ -116,7 +116,7 @@ If workers communicated directly, every worker would need to understand every ot
 - Create coordination chaos (N² communication paths)
 - Bypass the manager's ability to maintain coherence
 
-All worker-to-worker coordination goes **through the manager**. The manager reads worker board posts, makes decisions, and injects those decisions into subsequent worker prompts. This keeps the manager as the single source of truth for their scope.
+All worker-to-worker coordination goes **through the manager**. The manager reads worker board posts, makes decisions, and injects those decisions into subsequent worker prompts.
 
 ### 3.1 The Board — Primary Communication Channel
 
@@ -156,16 +156,13 @@ swarm_board(sessionId, level="L1")              // Boss directives
 ### 3.3 Communication Flow Example
 
 ```
-L1: Dispatches manager-anthropic (group-0) and manager-openai (group-1) in parallel
+L1: Dispatches manager-anthropic (group-0) in parallel
 
 group-0 manager posts:        plan → "Splitting backend into 2 workers: API + DB"
-group-1 manager posts:        plan → "Splitting frontend into 2 workers: components + pages"
 
 group-0 worker-0 posts:       finding → "API endpoints need auth middleware"
 group-0 manager reads:        swarm_board(level="L3", group="group-0")
 group-0 manager posts:        decision → "RE: auth middleware — yes, add JWT validation"
-group-1 manager reads:        swarm_board(level="L2")  ← sees group-0's auth finding
-group-1 manager adjusts:      tells frontend workers to add auth headers
 
 group-0 worker-1 posts:       blocker → "DB schema conflicts with worker-0's API changes"
 group-0 manager reads:        can't resolve → escalates
@@ -209,6 +206,13 @@ If max rounds reached → forced ESCALATION
 
 The debate system detects when debaters simply agree with each other instead of providing genuine critique. If sycophancy is detected, a **contrarian (devil's advocate)** is assigned to force rigorous challenge.
 
+Detection signals:
+- Rebuttal collapse (rebuttals <30% length of positions)
+- Hollow agreement (agreement markers without substantive reasoning)
+- Soft critiques (3:1 ratio of hedging vs substantive critique markers)
+- Position mimicry (positions copying each other's prior content)
+- Minimal defense ("Position unchanged" with <200 chars)
+
 ### 4.4 Post-Implementation Validation
 
 After a debate's decision is implemented, a **validation checkpoint** verifies the outcome:
@@ -233,29 +237,93 @@ Every swarm run progresses through a series of **phases** determined by the sele
 
 ### 5.1 Tiers
 
-| Tier | Phases | Agents | Use Case |
-|------|--------|--------|----------|
-| `duo` | 3 | 2 | Quick fixes, small changes |
-| `trio` | 5 | 3 | Medium features, refactoring |
-| `full-swarm` | 10 | 6-15 | Complex features, multi-file changes |
-| `blitz` | 11 | 8-20 | Large-scale overhauls, full app rewrites |
-| `debate` | 5 | 4+ | Design decisions, architecture choices |
-| `unleashed` | 11 | 10-30+ | Maximum scale, no restraints |
+| Tier | Phases | Use Case |
+|------|--------|----------|
+| `duo` | 3 | Quick fixes, single-file changes |
+| `trio` | 8 | Medium features, refactoring |
+| `full-swarm` | 17 | Complex features, security-critical, multi-domain |
+| `blitz` | 13 | Large-scale overhauls, 50+ file codebases |
+| `debate` | 5 | Design decisions, architecture choices |
+| `unleashed` | 18 | Maximum scale, no restraints (32 parallel agents) |
 
-### 5.2 Full-Swarm Phase Progression (most common)
+### 5.2 Phase Definitions per Tier
 
-```
-Phase 0: EXPLORE      → Parallel explore agents scan the codebase
-Phase 1: MERGE_EXPLORE → Merge exploration outputs into unified understanding
-Phase 2: DESIGN       → Architect agent creates implementation plan
-Phase 3: IMPLEMENT    → Parallel L2 managers dispatch L3 workers
-Phase 4: MERGE_IMPL   → Merge implementation outputs
-Phase 5: REVIEW       → Parallel code review agents critique changes
-Phase 6: GATE         → Quality gate — pass (≥7/10) or retry
-Phase 7: INTEGRATION  → Integration testing across workstreams
-Phase 8: VALIDATE     → Final validation
-Phase 9: SYNTHESIZE   → Architect produces final summary
-```
+#### `duo` (3 phases)
+
+| # | Phase | Agent Type | Mode | Notes |
+|---|-------|-----------|------|-------|
+| 0 | `implement` | clean-code | sync | Implementation |
+| 1 | `review` | code-review | sync | Quality critique |
+| 2 | `gate` | task | sync | **Quality gate** (≥7/10) |
+
+#### `trio` (8 phases)
+
+| # | Phase | Agent Type | Mode | Notes |
+|---|-------|-----------|------|-------|
+| 0 | `design` | architect | sync | High-level planning |
+| 1 | `architect` | worker-architect | sync | Detailed design |
+| 2 | `implement` | clean-code | sync | Implementation |
+| 3 | `review` | code-review | sync | Quality critique |
+| 4 | `gate` | task | sync | **Quality gate** (≥7/10) |
+| 5 | `validate-static` | task | sync | Static validation |
+| 6 | `validate-integration` | task | background/parallel | Integration tests |
+| 7 | `validate-gate` | task | sync | **Validation gate** |
+
+#### `full-swarm` (17 phases)
+
+| # | Phase | Agent Type | Mode | Notes |
+|---|-------|-----------|------|-------|
+| 0 | `explore` | explore | background/parallel | Codebase recon |
+| 1 | `merge_explore` | general-purpose | sync | Merge findings |
+| 2 | `architect` | worker-architect | sync | Detailed design |
+| 3 | `design` | architect | sync | System planning |
+| 4 | `implement` | clean-code | background/parallel | Parallel coding |
+| 5 | `security` | worker-security | background/parallel | Security audit (auto-invoked) |
+| 6 | `merge_impl` | general-purpose | sync | Merge implementations |
+| 7 | `integration` | worker-integration | background/parallel | Frontend-backend wiring |
+| 8 | `merge_integration` | general-purpose | sync | Merge integration work |
+| 9 | `review` | code-review | background/parallel | Parallel code review |
+| 10 | `gate` | task | sync | **Quality gate** (≥7/10) |
+| 11 | `validate-static` | task | sync | Static analysis |
+| 12 | `validate-integration` | task | background/parallel | Integration tests |
+| 13 | `validate-gate` | task | sync | **Validation gate** |
+| 14 | `document` | worker-documenter | background/parallel | Auto-documentation |
+| 15 | `devops` | worker-devops | sync | CI/CD, containers |
+| 16 | `synthesize` | architect | sync | Final summary |
+
+> **Note:** `full-swarm` is 17 phases (0–16). The security and integration phases are automatically inserted — no manual configuration required.
+
+#### `blitz` (13 phases)
+
+| # | Phase | Agent Type | Mode |
+|---|-------|-----------|------|
+| 0 | `recon` | explore | background/parallel |
+| 1 | `merge_recon` | general-purpose | sync |
+| 2 | `triage` | architect | sync |
+| 3 | `architect` | worker-architect | sync |
+| 4 | `build` | clean-code | background/parallel |
+| 5 | `merge_build` | general-purpose | sync |
+| 6 | `review` | code-review | background/parallel |
+| 7 | `merge_review` | general-purpose | sync |
+| 8 | `gate` | task | sync |
+| 9 | `validate-static` | task | sync |
+| 10 | `validate-integration` | task | background/parallel |
+| 11 | `validate-gate` | task | sync |
+| 12 | `synthesize` | architect | sync |
+
+#### `debate` (5 phases)
+
+| # | Phase | Agent Type | Mode |
+|---|-------|-----------|------|
+| 0 | `propose` | architect | background/parallel |
+| 1 | `critique` | code-review | background/parallel |
+| 2 | `rebuttal` | architect | background/parallel |
+| 3 | `merge_debate` | general-purpose | sync |
+| 4 | `synthesize` | architect | sync |
+
+#### `unleashed` (18 phases)
+
+Identical to `full-swarm` plus `security`, `integration`, `document`, `devops` phases, with separate `merge_review` and 32-agent parallel execution. Uses subprocess execution mode for true OS-level parallelism.
 
 ### 5.3 Phase Types
 
@@ -265,6 +333,23 @@ Phase 9: SYNTHESIZE   → Architect produces final summary
 | `sync` | Single agent runs sequentially (design, merge, gate) |
 | `background` | Agents launched as background tasks (parallel phases) |
 | `isGate` | Quality gate — must score ≥7/10 to pass, retries on failure |
+| `isValidationGate` | Post-implementation validation gate |
+| `requiresMerge` | Phase output must be merged before advancing |
+
+### 5.4 Tier Auto-Selection
+
+`swarm_init` can auto-select a tier based on task analysis. The `analyzeTaskComplexity()` function scans the task description for signals:
+
+| Signal | Keywords |
+|--------|----------|
+| architect | architect, design, system, microservice, scale |
+| database | database, schema, migration, prisma, drizzle, postgres, sql |
+| auth | auth, jwt, rbac, oauth, login, session |
+| integration | frontend, backend, api, react, next, full-stack |
+| devops | deploy, docker, kubernetes, ci/cd, terraform |
+| testing | test, coverage, e2e, integration-test |
+
+**Selection rule:** ≥4 signals → `full-swarm`, ≥2 signals → `trio`, otherwise → `duo`. Explicit `fileCount > 50` → `blitz`. Keywords like `unleashed`/`debate` override auto-selection.
 
 ---
 
@@ -272,47 +357,54 @@ Phase 9: SYNTHESIZE   → Architect produces final summary
 
 ### 6.1 The Problem
 
-GitHub Copilot's API has per-model rate limits. Spawning 15 agents simultaneously would instantly hit limits and cascade failures.
+GitHub Copilot's API has per-model rate limits. Spawning many agents simultaneously would instantly hit limits and cascade failures.
 
 ### 6.2 Model Tiers & Limits
 
-| Tier | Models | RPM | Burst | Interval | Cost |
-|------|--------|-----|-------|----------|------|
-| **Premium** | Opus 4.6, Opus 4.5, Codex-Max, GPT-5.3-Codex | 2 | 2 | 30s | 3x |
-| **Standard** | Gemini 3 Pro, GPT-5.2, Sonnet 4.6/4.5, GPT-5.2-Codex | 10 | 5 | 6s | 1x |
-| **Fast** | Gemini 3 Flash, Haiku 4.5, Codex-Mini | 15 | 8 | 4s | 0.33x |
+| Tier | Models | RPM | Burst | Interval | Cost Multiplier |
+|------|--------|-----|-------|----------|-----------------|
+| **Premium** | claude-opus-4.6, gemini-2.5-pro | 2 | 2 | 30s | 3× |
+| **Standard** | claude-sonnet-4.6, gpt-4.1, gpt-4o, gemini-2.5-pro | 10 | 5 | 6s | 1× |
+| **Fast** | claude-haiku-4.5, o4-mini, gemini-2.5-flash | 15 | 8 | 4s | 0.33× |
 
 ### 6.3 Token Bucket Rate Limiter
 
 Each session maintains per-tier token buckets. When `swarm_dispatch` is called:
 1. Resolve the requested model (with fallback if unavailable)
 2. Check the rate limiter for that model's tier
-3. If tokens available → consume one, return dispatch
-4. If depleted → return `retryAfterSeconds` so the agent can sleep and retry
+3. If tokens available → consume one, dispatch
+4. If depleted → return `retryAfterMs` so the agent can sleep and retry
 
 ### 6.4 Concurrency Presets
-
-Control how many L2 managers run simultaneously:
 
 | Preset | Concurrency | Max Agents | Plan |
 |--------|-------------|------------|------|
 | `conservative` | 2 | 10 | Any (Free, Pro, Business, Enterprise) |
 | `standard` | 3 | 15 | Business or Enterprise |
-| `aggressive` | 5 | 25 | Enterprise |
+| `aggressive` | 4 | 20 | Enterprise |
 | `max` | 8 | 40 | Enterprise (may hit limits) |
-| `unlimited` | 999 | 999 | YOLO |
+| `unlimited` | 0 | ∞ | YOLO |
 
-### 6.5 Model Fallback Chains
+### 6.5 Model Registry
 
-When a requested model is unavailable, the system walks a fallback chain ordered by **Code Arena score** (llm-stats.com):
+The model registry (`model-registry.ts`) maintains four **role-based pools** rebuilt dynamically from available models:
 
-```
-claude-opus-4.6 (#1, 2011) → opus-4.5 (#3) → codex-max → gpt-5.3 → gemini-3-pro (#2) → gpt-5.2 (#4)
-gemini-3-pro (#2, 1563)    → gpt-5.2 (#4) → gemini-3.1-pro (#5) → sonnet-4.6 (#9) → ...
-claude-haiku-4.5           → gemini-3-flash (#7, 1510!) → codex-mini → gemini-3-pro
-```
+| Pool | Purpose | Default Models |
+|------|---------|---------------|
+| `premiumPool` | Architect, synthesizer | claude-opus-4.6, gemini-2.5-pro |
+| `coderPool` | Implementation workers | claude-sonnet-4.6, gpt-4.1, gpt-4o (interleaved by provider) |
+| `criticPool` | Code review, security | Alternating standard-tier models |
+| `fastPool` | Explore, merge | claude-haiku-4.5, o4-mini, gemini-2.5-flash |
 
-**Key principle:** Better models always take precedence. Fallback always moves toward the highest-scoring available model.
+### 6.6 Model Fallback Chains
+
+When a requested model is unavailable, the resolver walks (in order):
+1. **Explicit fallback chain** (e.g., `claude-opus-4.6` → `claude-sonnet-4.6`)
+2. **Same tier + same provider**
+3. **Same tier, any provider**
+4. **Any available model** (last resort)
+
+Additionally, **model upgrades** are applied automatically: if `claude-sonnet-4.5` is requested but `claude-sonnet-4.6` is available, the newer model is used.
 
 ---
 
@@ -326,67 +418,154 @@ claude-haiku-4.5           → gemini-3-flash (#7, 1510!) → codex-mini → gem
 
 ### 7.2 L2 Agents (Managers)
 
-| Agent | Model | Provider Affinity |
-|-------|-------|------------------|
-| `@manager-anthropic` | claude-sonnet-4.5 | Anthropic workers |
-| `@manager-openai` | gpt-5.2-codex | OpenAI workers |
-| `@manager-gemini` | gemini-3-pro-preview | Google workers |
+| Agent | Model | Role |
+|-------|-------|------|
+| `@manager-anthropic` | claude-sonnet-4.6 | L2 manager — coordinates workers, synthesizes reports |
 
-### 7.3 L3 Agents (Workers)
+> Additional manager variants (`@manager-openai`, `@manager-gemini`) may be defined globally; the system routes by provider affinity from `swarm_dispatch`.
+
+### 7.3 L3 Agents (Workers) — 15 total
 
 | Agent | Model | Specialty |
 |-------|-------|-----------|
-| `@worker-coder` | claude-opus-4.6 | Implementation, refactoring |
+| `@worker-coder` | claude-opus-4.6 | Implementation, refactoring, feature development |
 | `@worker-tester` | claude-opus-4.6 | Unit/integration tests, coverage |
-| `@worker-security` | claude-opus-4.6 | Vulnerability analysis, auth review |
-| `@worker-architect` | claude-opus-4.6 | System design, API design |
-| `@worker-documenter` | claude-haiku-4.5 | READMEs, API docs, changelogs |
-| `@worker-debugger` | claude-opus-4.6 | Root cause analysis, log analysis |
+| `@worker-security` | claude-opus-4.6 | Vulnerability analysis, auth review, dependency audit |
+| `@worker-architect` | claude-opus-4.6 | System design, component structure, API design |
+| `@worker-documenter` | claude-haiku-4.5 | READMEs, API docs, guides, changelogs |
+| `@worker-debugger` | claude-opus-4.6 | Root cause analysis, stack traces, log analysis |
+| `@worker-integration` | claude-sonnet-4.6 | API clients, React Query hooks, frontend-backend wiring |
+| `@worker-database` | claude-sonnet-4.6 | Schema design (Prisma/Drizzle), migrations, query optimization |
+| `@worker-devops` | claude-sonnet-4.6 | CI/CD pipelines, Docker, K8s manifests, IaC |
+| `@worker-auth` | claude-sonnet-4.6 | JWT, RBAC, OAuth2/OIDC, session management |
 | `@worker-anthropic` | claude-opus-4.6 | Provider-routed (Anthropic) |
-| `@worker-openai` | gpt-5.2-codex | Provider-routed (OpenAI) |
-| `@worker-gemini` | gemini-3-pro-preview | Provider-routed (Google) |
-| `@worker-haiku` | claude-haiku-4.5 | Fast/merge tasks |
+| `@worker-openai` | *(global config)* | Provider-routed (OpenAI) |
+| `@worker-gemini` | *(global config)* | Provider-routed (Google) |
+| `@worker-haiku` | claude-haiku-4.5 | Fast/merge tasks, lightweight analysis |
+| `@worker` | claude-opus-4.6 | Default fallback worker |
+
+### 7.4 WorkerRole Types
+
+The `WorkerRole` type enumerates all valid roles for task classification and routing:
+
+```
+coder | tester | reviewer | security | architect | documenter |
+debugger | devops | integration | database | auth | meta-worker
+```
 
 ---
 
 ## 8. MCP Tools Reference
 
-All orchestration state lives in the **Open Swarm MCP server** — an in-memory Node.js process communicating over stdio via the MCP protocol.
+All orchestration state lives in the **Open Swarm MCP server** — a Node.js process communicating via the MCP protocol.
 
 ### 8.1 Lifecycle Tools
 
-| Tool | Called By | Purpose |
-|------|-----------|---------|
-| `swarm_init` | L1 | Create a new swarm session |
-| `swarm_next` | L1 | Get the next phase action |
-| `swarm_dispatch` | L1 | Resolve a prompt + model with rate limiting and fallback |
-| `swarm_submit` | L1 | Submit phase output and advance |
-| `swarm_merge` | L1 | Merge parallel outputs |
-| `swarm_gate` | L1 | Evaluate quality gate scores |
-| `swarm_status` | L1 | Check current swarm state |
-| `swarm_collect` | L1 | Batch-collect subprocess outputs |
-| `swarm_throttle` | L1 | Adjust rate limiting mid-session |
-| `swarm_models` | L1 | List/set available models |
+| Tool | Handler File | Called By | Purpose |
+|------|-------------|-----------|---------|
+| `swarm_init` | `tools/init.ts` | L1 | Create a new swarm session |
+| `swarm_next` | `tools/lifecycle.ts` | L1 | Get the next phase action |
+| `swarm_submit` | `tools/lifecycle.ts` | L1 | Submit phase output and advance |
+| `swarm_status` | `tools/lifecycle.ts` | L1 | Check current swarm state |
+| `swarm_dispatch` | `tools/dispatch.ts` | L1 | Resolve a prompt + model with rate limiting |
+| `swarm_collect` | `tools/dispatch.ts` | L1 | Batch-collect subprocess outputs |
+| `swarm_worker` | `tools/dispatch.ts` | L1 | Dispatch/status/results for background workers |
+| `swarm_gate` | `tools/gate.ts` | L1 | Evaluate quality gate scores |
+| `swarm_merge` | `tools/gate.ts` | L1 | Merge parallel outputs with convergence guidance |
+| `swarm_validate` | `tools/gate.ts` | L1 | Run acceptance test validation |
 
 ### 8.2 Communication Tools
 
-| Tool | Called By | Purpose |
-|------|-----------|---------|
-| `swarm_relay` | L1, L2, L3 | Post a message to the shared board |
-| `swarm_board` | L1, L2, L3 | Read messages from the shared board |
+| Tool | Handler File | Called By | Purpose |
+|------|-------------|-----------|---------|
+| `swarm_relay` | `tools/communication.ts` | L1, L2, L3 | Post a message to the shared board |
+| `swarm_board` | `tools/communication.ts` | L1, L2, L3 | Read messages from the shared board |
+| `swarm_debate` | `tools/communication.ts` | L1, L2 | Start/advance/evaluate structured debates |
 
 ### 8.3 Coordination Tools
 
-| Tool | Called By | Purpose |
-|------|-----------|---------|
-| `swarm_debate` | L1, L2 | Start/advance/evaluate structured debates |
-| `swarm_claim` | L2, L3 | Claim file ownership to prevent edit conflicts |
-| `swarm_memory` | L2, L3 | Store/search successful patterns from prior tasks |
-| `swarm_consensus` | L2 | Lightweight worker consensus for complex decisions |
+| Tool | Handler File | Called By | Purpose |
+|------|-------------|-----------|---------|
+| `swarm_consensus` | `tools/consensus.ts` | L2 | Lightweight worker consensus for complex decisions |
+| `swarm_claim` | `tools/claim.ts` | L2, L3 | Claim file ownership to prevent edit conflicts |
+| `swarm_memory` | `tools/intelligence.ts` | L2, L3 | Store/search successful patterns |
+| `swarm_learn` | `tools/intelligence.ts` | L1 | Self-learning: retrieve/judge/distill/consolidate/route |
+| `swarm_watch` | `tools/intelligence.ts` | L1 | Subscribe background workers to trigger events |
+| `swarm_throttle` | `tools/throttle.ts` | L1 | Adjust rate limiting mid-session |
+| `swarm_models` | `tools/throttle.ts` | L1 | List/set available models |
 
 ---
 
-## 9. Runtime Architecture
+## 9. Codebase Structure
+
+### 9.1 MCP Server Source Layout
+
+```
+mcp-server/src/
+├── index.ts              Entry point — registers all MCP tools
+├── state.ts              Barrel re-export (maintains backward compatibility)
+├── tools.ts              Barrel re-export for tools
+│
+├── swarm-types.ts        All type definitions (Tier, WorkerRole, SessionState, etc.)
+├── model-registry.ts     Model resolution, pools, fallback chains, upgrades
+├── rate-limiter.ts       Token bucket rate limiting, concurrency presets
+├── phase-engine.ts       Phase definitions per tier, phase transition validation
+├── session.ts            Session lifecycle (create, get, destroy, cleanup)
+├── board.ts              Inter-agent message board (post, read, filter, anonymize)
+├── prompt-builder.ts     L2 manager prompt construction, anonymous history
+├── hierarchy.ts          Tier selection, workstream grouping, task complexity
+│                         analysis, drift detection, consensus protocol
+├── debate.ts             Structured debate protocol (rounds, scoring, sycophancy)
+├── file-claims.ts        File ownership tracking (claim, release, conflict check)
+├── scoring.ts            Quality scoring dimensions, critic prompts, retry prompts
+├── memory.ts             SQLite-backed pattern memory (better-sqlite3 + fallbacks)
+├── embeddings.ts         384-dim ONNX embeddings (all-MiniLM-L6-v2) with LRU cache
+├── vector-store.ts       HNSW-style nearest-neighbor semantic search
+├── learning.ts           5-stage self-learning loop (retrieve/judge/distill/
+│                         consolidate/route)
+├── workers.ts            Background analysis workers (audit, optimize, testgaps,
+│                         document)
+│
+└── tools/
+    ├── index.ts          Barrel re-export for all tool handlers
+    ├── shared.ts         Shared utilities (ok/err builders, validation helpers)
+    ├── init.ts           swarm_init
+    ├── lifecycle.ts      swarm_next, swarm_submit, swarm_status
+    ├── dispatch.ts       swarm_dispatch, swarm_collect, swarm_worker
+    ├── gate.ts           swarm_gate, swarm_merge, swarm_validate
+    ├── communication.ts  swarm_relay, swarm_board, swarm_debate
+    ├── consensus.ts      swarm_consensus
+    ├── claim.ts          swarm_claim
+    ├── intelligence.ts   swarm_memory, swarm_learn, swarm_watch
+    └── throttle.ts       swarm_throttle, swarm_models
+```
+
+### 9.2 Agent Configuration Layout
+
+```
+opencode/
+├── opencode.json         OpenCode agent registry (15 agents defined)
+└── agents/
+    ├── swarm.md          L1 orchestrator prompt
+    ├── manager.md        L2 manager prompt (shared across all manager variants)
+    ├── worker.md         Default fallback worker prompt
+    ├── worker-coder.md
+    ├── worker-tester.md
+    ├── worker-security.md
+    ├── worker-architect.md
+    ├── worker-documenter.md
+    ├── worker-debugger.md
+    ├── worker-integration.md
+    ├── worker-database.md
+    ├── worker-devops.md
+    ├── worker-auth.md
+    ├── worker-anthropic.md
+    └── worker-haiku.md
+```
+
+---
+
+## 10. Runtime Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -399,18 +578,18 @@ All orchestration state lives in the **Open Swarm MCP server** — an in-memory 
 │                         OpenCode                                     │
 │                                                                      │
 │  ┌──────────┐  task()  ┌──────────┐  task()  ┌──────────┐           │
-│  │ @swarm   │────────►│@mgr-anth │────────►│@wkr-coder│           │
+│  │ @swarm   │────────►│@manager  │────────►│@wkr-coder│           │
 │  │   (L1)   │         │   (L2)   │         │   (L3)   │           │
 │  └────┬─────┘         └────┬─────┘         └────┬─────┘           │
 │       │                     │                     │                  │
-│       │  MCP stdio          │  MCP stdio          │  MCP stdio      │
+│       │  MCP tools          │  MCP tools          │  MCP tools      │
 │       ▼                     ▼                     ▼                  │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │                    MCPU (MCP Proxy)                           │   │
 │  │              Routes tool calls to MCP servers                │   │
 │  └──────────────────────────┬───────────────────────────────────┘   │
 └─────────────────────────────┼───────────────────────────────────────┘
-                              │ stdio
+                              │ HTTP (port 38546)
                               ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                   Open Swarm MCP Server                              │
@@ -423,24 +602,111 @@ All orchestration state lives in the **Open Swarm MCP server** — an in-memory 
 │  │   claims)  │  │  filters)  │  │  consensus)│  │  fallback)   │  │
 │  └────────────┘  └────────────┘  └────────────┘  └──────────────┘  │
 │                                                                      │
-│  Hosted by: ToolHive (thv) — container-managed MCP server            │
-│  Port: 38546 (stdio bridge)                                          │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────────────────────┐ │
+│  │  Patterns  │  │ Embeddings │  │       Self-Learning Loop       │ │
+│  │  (SQLite)  │  │  (ONNX)    │  │ retrieve→judge→distill→route  │ │
+│  └────────────┘  └────────────┘  └────────────────────────────────┘ │
+│                                                                      │
+│  Endpoint: http://127.0.0.1:38546/mcp                                │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.1 Key Architectural Decisions
+### 10.1 Key Architectural Decisions
 
 1. **Board is in-memory, not file-based.** The MCP server holds all board state. This avoids file I/O contention and makes reads/writes instant. Trade-off: state is lost if the MCP server restarts.
 
 2. **Communication is batch-async, not real-time.** Workers post to the board; managers poll between batches. There is no push notification. This is a structural limitation of OpenCode's `task()` model (fire-and-wait).
 
-3. **Subagents require explicit MCP tool permissions.** OpenCode denies all tools not listed in a subagent's config. Every manager and worker must have `swarm_relay: true` and `swarm_board: true` in their tools config, or board communication silently fails.
+3. **Subagents require explicit MCP tool permissions.** OpenCode denies all tools not listed in a subagent's config. Managers and workers must have `swarm_relay: true` and `swarm_board: true` in their tools config, or board communication silently fails.
 
 4. **Context isolation is by design.** Each subagent gets its own context window. The only shared state is the board. This is a feature, not a limitation — it forces agents to communicate through structured channels.
 
+5. **`state.ts` is a backward-compatibility barrel.** The original monolithic `state.ts` (3600+ lines) was refactored into focused modules. `state.ts` now re-exports everything under the same public surface for zero-impact consumption by existing tool code.
+
 ---
 
-## 10. Quality Gates
+## 11. Enterprise Features
+
+### 11.1 Task Complexity Analysis
+
+`swarm_init` automatically analyzes the task description to:
+- Detect which domains are involved (auth, database, devops, integration, etc.)
+- Select the appropriate tier if none was specified
+- Estimate the number of workstreams needed
+- Report which specialist worker types will be auto-invoked (`requiresAuth`, `requiresDatabase`, etc.)
+
+### 11.2 Architecture-First Planning
+
+For `trio`, `full-swarm`, and `blitz` tiers, an `architect` phase precedes implementation. The `worker-architect` agent produces a structured design document that the coder pool then receives as context. This prevents implementation-level architectural drift.
+
+### 11.3 Security Auto-Invocation
+
+In `full-swarm` and `unleashed` tiers, a `security` phase runs in **parallel with implementation** using `worker-security`. Security review is not a post-implementation afterthought — it runs concurrently so findings can feed back before the merge phase.
+
+### 11.4 Quality Gate Scoring
+
+The quality gate (`swarm_gate`) uses a **multi-dimension scoring system**:
+
+| Dimension | Max | What It Measures |
+|-----------|-----|-----------------|
+| Evidence Quality | 3 | Code refs, data, concrete examples |
+| Reasoning Clarity | 3 | Logical structure, causal chains |
+| Rebuttal Effectiveness | 3 | Addressed critiques with new evidence |
+| Novel Contribution | 2 | Unique insights not in other positions |
+
+Gates require **all workstreams ≥ 7/10** with zero critical issues. Failed gates return `retry: true` with specific feedback and re-dispatch failed workstreams (up to `maxLoops: 3`).
+
+The gate also **auto-invokes learning** (`judge` + `distill`) to record outcomes and extract reusable patterns for future sessions.
+
+### 11.5 Session Cleanup & Memory Management
+
+- `cleanupStaleSessions()` — removes sessions idle beyond a configurable TTL
+- `destroySession()` — tears down a session and clears its rate limiters
+- Pattern memory with `qualityScore ≥ 8` threshold — only high-quality patterns are stored
+- `swarm_init` auto-retrieves relevant patterns via semantic search before dispatching any work
+- SQLite + ONNX vector embeddings for persistent, cross-session pattern search
+
+### 11.6 Anti-Drift Enforcement
+
+Every `swarm_submit` call runs `checkDrift()` comparing output alignment against the original task assignment:
+
+- Configurable threshold (default: 0.6 alignment score)
+- Uses structural analysis: keyword overlap, length ratio, section matching
+- On drift detection: submission rejected with feedback, worker retries with corrective guidance
+
+---
+
+## 12. Security
+
+### 12.1 Session IDs
+
+Session IDs are generated with `randomUUID()` from Node's built-in `crypto` module:
+```typescript
+function generateId(): string {
+  return `swarm-${randomUUID()}`;
+}
+```
+This replaces any sequential or timestamp-based ID generation, preventing session enumeration attacks.
+
+### 12.2 Shell Injection Prevention
+
+Subprocess mode uses `writeFileSync` to write prompts to temporary files rather than interpolating them into shell heredocs. This prevents injection via malicious task descriptions.
+
+### 12.3 Input Validation
+
+All tool handlers validate required string parameters via a shared `validateString()` utility before processing. Invalid inputs return structured error responses rather than throwing.
+
+### 12.4 Error Boundaries
+
+Tool handlers catch errors at boundaries and return structured `{ok: false, error: "..."}` responses. Errors do not propagate as unhandled exceptions that could crash the MCP server.
+
+### 12.5 Rate Limiting
+
+Token bucket rate limiting is applied per-session per-model-tier, preventing runaway agent spawning from exhausting API quotas and incurring unexpected costs.
+
+---
+
+## 13. Quality Gates
 
 Quality gates are the **only hard checkpoint** in the swarm lifecycle. A phase marked `isGate: true` requires:
 
@@ -454,9 +720,11 @@ If the gate fails:
 3. Up to `maxLoops` retries (default: 3)
 4. If still failing after retries, the orchestrator must decide: force-proceed or abort
 
+Validation gates (`isValidationGate: true`) additionally run acceptance tests parsed from the original task description.
+
 ---
 
-## 11. File Claim System
+## 14. File Claim System
 
 When multiple workers might edit the same file, the **claim system** prevents conflicts:
 
@@ -472,24 +740,38 @@ Workers must claim files before editing and release them when done. Managers sho
 
 ---
 
-## 12. Pattern Memory
+## 15. Pattern Memory & Self-Learning
 
-Successful patterns from prior tasks are stored and searchable:
+### 15.1 Storage Layer
+
+Successful patterns are stored in SQLite (`data/swarm.db`) backed by `better-sqlite3`, with Node 22.5+ `node:sqlite` and in-memory fallbacks for environments without native bindings.
+
+### 15.2 Semantic Search
+
+Patterns are indexed using **384-dimensional vector embeddings** (all-MiniLM-L6-v2 ONNX model, `embeddings.ts`) with an LRU cache. `vector-store.ts` provides HNSW-style nearest-neighbor search for retrieving similar patterns by semantic content.
+
+### 15.3 Self-Learning Loop (5 stages)
 
 ```
-swarm_memory(action="store", taskType="auth-implementation",
-  approach="JWT with refresh tokens", qualityScore=9,
-  tags=["auth", "jwt", "security"])
-
-swarm_memory(action="search", query="authentication")
-  → Returns similar patterns with approaches and quality scores
+RETRIEVE  →  Semantic search for relevant prior patterns (on swarm_init)
+JUDGE     →  Record outcome quality after gate evaluation (on swarm_gate)
+DISTILL   →  Extract reusable patterns from score ≥8 sessions
+CONSOLIDATE → Merge near-duplicates, decay unused, prune dead patterns
+ROUTE     →  Recommend models/approaches based on past successes (on swarm_dispatch)
 ```
 
-Only patterns with quality score ≥ 8 are stored. Workers should search for relevant patterns before starting work.
+This loop is **auto-wired**:
+- `swarm_init` calls `retrieve()` — prior patterns are injected into the first prompt
+- `swarm_gate` calls `judge()` + `distill()` — quality is recorded after every gate
+- `swarm_dispatch` calls `route()` — model selection uses past success data
+
+### 15.4 Pattern Retention
+
+Only patterns with `qualityScore ≥ 8` are stored. Patterns from prior sessions are auto-imported on startup (old `patterns.json` is migrated to SQLite and renamed `.migrated`).
 
 ---
 
-## 13. Known Limitations
+## 16. Known Limitations
 
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
@@ -498,11 +780,11 @@ Only patterns with quality score ≥ 8 are stored. Workers should search for rel
 | Context window isolation | No shared memory beyond board + prompt | Board messages kept concise; prompts include relevant history |
 | OpenCode streaming Zod errors | Cosmetic validation errors in terminal from Copilot API streaming | Does not affect functionality; OpenCode internal issue |
 | Rate limits | Copilot API limits constrain parallelism | Token bucket rate limiter + staggered dispatch + model fallback |
-| State is in-memory | MCP server restart loses all session state | Accepted trade-off for speed; persistence layer planned |
+| State is in-memory | MCP server restart loses all session/board state | Pattern memory persists in SQLite; board state is session-scoped |
 
 ---
 
-## 14. Design Principles
+## 17. Design Principles
 
 1. **Context is the scarcest resource.** Every architectural decision optimizes for keeping context windows small and focused.
 
@@ -516,13 +798,15 @@ Only patterns with quality score ≥ 8 are stored. Workers should search for rel
 
 6. **Fail loudly, not silently.** Workers post blockers instead of guessing. Managers escalate instead of making uninformed decisions. The system is designed to surface problems early.
 
+7. **Self-improvement across sessions.** Pattern memory and the learning loop create a feedback cycle — the system gets better at routing, model selection, and task decomposition over time.
+
 ---
 
-## 15. Future Directions
+## 18. Future Directions
 
-- **Persistent state** — SQLite or Redis backing for session/board data to survive restarts
-- **Real-time push notifications** — WebSocket or SSE channel for instant L3→L2 notification
-- **Adaptive concurrency** — auto-tune rate limits based on observed API behavior
-- **Cross-session learning** — pattern memory that persists across swarm runs
+- **Persistent board state** — Redis or SSE channel for board messages to survive restarts and enable real-time push
+- **Adaptive concurrency** — auto-tune rate limits based on observed API behavior and remaining quota
+- **Cross-session consensus** — pattern memory that grows from every completed swarm run
 - **Visual dashboard** — real-time visualization of agent hierarchy, board messages, and phase progression
 - **Multi-codebase orchestration** — coordinating swarms across multiple repositories
+- **L2 manager diversity** — openai and gemini manager variants for cross-provider manager-level diversity

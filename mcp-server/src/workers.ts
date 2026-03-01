@@ -5,6 +5,7 @@
  */
 
 import { memoryStore } from "./memory.js";
+import { getCoderModel, getFastModel } from "./model-registry.js";
 import type {
   WorkerRecord,
   BackgroundWorkerType,
@@ -116,7 +117,7 @@ interface WorkerConfig {
 const WORKER_CONFIGS: Record<BackgroundWorkerType, WorkerConfig> = {
   audit: {
     agentType: "general-purpose",
-    model: "sonnet",
+    model: getCoderModel(0),
     systemPrompt:
       "You are a security auditor. Scan the provided files for security vulnerabilities including injection, XSS, CSRF, auth bypass, secrets exposure, and OWASP Top 10 issues.",
     instructions: `For each file:
@@ -135,7 +136,7 @@ SUMMARY: <one-line overall assessment>`,
 
   optimize: {
     agentType: "general-purpose",
-    model: "sonnet",
+    model: getCoderModel(1),
     systemPrompt:
       "You are a performance engineer. Analyze the provided files for performance bottlenecks, memory leaks, unnecessary allocations, and optimization opportunities.",
     instructions: `For each file:
@@ -154,7 +155,7 @@ SUMMARY: <one-line overall assessment>`,
 
   testgaps: {
     agentType: "general-purpose",
-    model: "sonnet",
+    model: getCoderModel(2),
     systemPrompt:
       "You are a test coverage analyst. Identify missing test coverage for the provided files, focusing on edge cases, error paths, and critical business logic.",
     instructions: `For each file:
@@ -173,7 +174,7 @@ SUMMARY: <one-line overall assessment>`,
 
   document: {
     agentType: "general-purpose",
-    model: "haiku",
+    model: getFastModel(0),
     systemPrompt:
       "You are a technical writer. Generate API documentation for the provided files, focusing on public interfaces, function signatures, and usage examples.",
     instructions: `For each file:

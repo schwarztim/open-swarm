@@ -1,0 +1,9 @@
+export { handleSwarmInit } from "./init.js";
+export { handleSwarmNext, handleSwarmSubmit, handleSwarmStatus } from "./lifecycle.js";
+export { handleSwarmDispatch, handleSwarmCollect, handleSwarmWorker } from "./dispatch.js";
+export { handleSwarmGate, handleSwarmMerge, handleSwarmValidate } from "./gate.js";
+export { handleSwarmRelay, handleSwarmBoard, handleSwarmDebate } from "./communication.js";
+export { handleSwarmConsensus } from "./consensus.js";
+export { handleSwarmClaim } from "./claim.js";
+export { handleSwarmMemory, handleSwarmLearn, handleSwarmWatch } from "./intelligence.js";
+export { handleSwarmThrottle, handleSwarmModels } from "./throttle.js";

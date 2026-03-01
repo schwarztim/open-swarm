@@ -9,7 +9,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Server-00aa55?logo=data:image/svg+xml;base64,)](https://modelcontextprotocol.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.16301-b31b1b.svg)](https://arxiv.org/abs/2602.16301)
 [![OpenCode](https://img.shields.io/badge/OpenCode-Agent-4a90d9?logo=github)](https://github.com/anomalyco/opencode)
-[![Version](https://img.shields.io/badge/version-16.0-blue.svg)](#changelog)
+[![Version](https://img.shields.io/badge/version-17.0-blue.svg)](#changelog)
 
 _Cooperation isn't programmed — it **emerges**._
 
@@ -109,8 +109,8 @@ opencode/agents/*.md     →  ~/.config/opencode/agents/
 opencode/opencode.json   →  ~/.config/opencode/opencode.json (merged)
 ```
 
-It registers the MCP server with MCPU, sets up all 15 agents (1 orchestrator +
-3 managers + 11 workers) with correct model assignments, rate pacing, and
+It registers the MCP server with MCPU, sets up all 16 agents (1 orchestrator +
+1 manager + 14 workers) with correct model assignments, rate pacing, and
 board-based communication tools.
 
 > **Already have a `~/.config/opencode/opencode.json`?** The setup script will
@@ -169,12 +169,21 @@ The orchestrator delegates to workers, and workers can further delegate to sub-a
 
 | Agent                | Level | Role              | Model                | Tools                    |
 | -------------------- | ----- | ----------------- | -------------------- | ------------------------ |
-| **swarm**            | 1     | Orchestrator      | claude-sonnet-4      | MCP tools (8) + `task()` |
-| **worker-anthropic** | 2-3   | Anthropic worker  | claude-sonnet-4      | Full toolset + `task()`  |
-| **worker-openai**    | 2-3   | OpenAI worker     | gpt-5.2-codex        | Full toolset + `task()`  |
-| **worker-gemini**    | 2-3   | Google worker     | gemini-3-pro-preview | Full toolset + `task()`  |
+| **swarm**            | 1     | Orchestrator      | claude-opus-4.6      | MCP tools (19) + `task()` |
+| **manager-anthropic**| 2     | L2 Manager        | claude-sonnet-4.6    | Full toolset + `task()` + board |
+| **worker-coder**     | 3     | Implementation    | claude-opus-4.6      | Full toolset + `task()`  |
+| **worker-tester**    | 3     | Testing           | claude-opus-4.6      | Full toolset + `task()`  |
+| **worker-security**  | 3     | Security audit    | claude-opus-4.6      | Full toolset + `task()`  |
+| **worker-architect** | 3     | System design     | claude-opus-4.6      | Full toolset + `task()`  |
+| **worker-documenter**| 3     | Documentation     | claude-haiku-4.5     | Full toolset + `task()`  |
+| **worker-debugger**  | 3     | Root cause analysis | claude-opus-4.6    | Full toolset + `task()`  |
+| **worker-integration**| 3    | API wiring        | claude-sonnet-4.6    | Full toolset + `task()`  |
+| **worker-database**  | 3     | Schema/migrations | claude-sonnet-4.6    | Full toolset + `task()`  |
+| **worker-devops**    | 3     | CI/CD, IaC        | claude-sonnet-4.6    | Full toolset + `task()`  |
+| **worker-auth**      | 3     | Auth/RBAC/OAuth   | claude-sonnet-4.6    | Full toolset + `task()`  |
+| **worker-anthropic** | 2-3   | Anthropic worker  | claude-opus-4.6      | Full toolset + `task()`  |
 | **worker-haiku**     | 2-3   | Fast/merge worker | claude-haiku-4.5     | Full toolset + `task()`  |
-| **worker**           | 2-3   | Default fallback  | claude-sonnet-4      | Full toolset + `task()`  |
+| **worker**           | 2-3   | Default fallback  | claude-opus-4.6      | Full toolset + `task()`  |
 
 ### Provider-Based Dynamic Routing via `subagent_type`
 
@@ -970,23 +979,25 @@ source ~/.zshrc
 
 | Tool              | Purpose                                                                          |
 | ----------------- | -------------------------------------------------------------------------------- |
-| `swarm_init`      | Initialize session, select tier, set execution mode                              |
+| `swarm_init`      | Initialize session, select tier, set execution mode, auto-retrieve prior patterns |
 | `swarm_next`      | Get task params or subprocess spawn commands (auto-injects board context)        |
-| `swarm_submit`    | Submit completed output, auto-posts to board, advance state                      |
+| `swarm_submit`    | Submit completed output, auto-posts to board, advance state, drift check         |
 | `swarm_merge`     | Merge parallel outputs with convergence guidance                                 |
 | `swarm_status`    | Full session state + convergence metrics                                         |
-| `swarm_gate`      | Quality gate: proceed, retry, or force-advance                                   |
+| `swarm_gate`      | Quality gate: proceed, retry, or force-advance; auto-judges + distills patterns  |
 | `swarm_collect`   | Collect subprocess outputs (subprocess mode only)                                |
+| `swarm_validate`  | Run acceptance test validation against parsed task criteria                      |
 | `swarm_models`    | List or set available models dynamically                                         |
-| `swarm_relay`     | **NEW** — Post findings/blockers/decisions to the shared board                   |
-| `swarm_board`     | **NEW** — Read board state, check ready/blocked workstreams                      |
-| `swarm_debate`    | **NEW** — Structured multi-round debates with convergence + sycophancy detection |
-| `swarm_claim`     | **NEW** — File ownership claims to prevent worker conflicts                      |
-| `swarm_memory`    | **NEW** — Pattern memory: store/search successful approaches                     |
-| `swarm_consensus` | **NEW** — Lightweight worker consensus for complex decisions                     |
-| `swarm_learn`     | **NEW** — Self-learning loop: retrieve/judge/distill/consolidate/route patterns  |
-| `swarm_watch`     | **NEW** — Subscribe background workers to trigger events (gate_pass, gate_fail)  |
-| `swarm_worker`    | **NEW** — Dispatch/status/results for background analysis workers                |
+| `swarm_relay`     | Post findings/blockers/decisions/plans/reports to the shared board               |
+| `swarm_board`     | Read board state, filter by level/group, check ready/blocked workstreams         |
+| `swarm_debate`    | Structured multi-round debates with convergence + sycophancy detection           |
+| `swarm_claim`     | File ownership claims to prevent worker conflicts (claim/release/check/list)     |
+| `swarm_memory`    | Pattern memory: store/search successful approaches (score ≥8 only)               |
+| `swarm_consensus` | Lightweight worker consensus for complex decisions                               |
+| `swarm_learn`     | Self-learning loop: retrieve/judge/distill/consolidate/route patterns             |
+| `swarm_watch`     | Subscribe background workers to trigger events (gate_pass, gate_fail)            |
+| `swarm_worker`    | Dispatch/status/results for background analysis workers                          |
+| `swarm_throttle`  | Adjust rate limiting mid-session                                                 |
 
 ### Invocation
 
@@ -1036,9 +1047,9 @@ Copilot selects **Blitz** — 5 parallel explorers (structure/patterns/deps/gaps
 
 ---
 
-## 🎯 L3 Worker Specialization (NEW — v15.0)
+## 🎯 L3 Worker Specialization (v15.0+)
 
-Workers are now **domain-specialized** with roles AND providers (2D matrix):
+Workers are **domain-specialized** with roles AND providers (2D matrix):
 
 ```
               Anthropic    OpenAI       Gemini       Fast
@@ -1049,15 +1060,19 @@ Workers are now **domain-specialized** with roles AND providers (2D matrix):
   architect   ✓ (premium)  ✓ (premium)  -            -
   documenter  -            -            -            ✓ (fast)
   debugger    ✓            ✓            ✓            -
+  integration ✓            ✓            -            -   (NEW v16.0)
+  database    ✓            ✓            -            -   (NEW v16.0)
+  devops      ✓            ✓            -            -   (NEW v16.0)
+  auth        ✓            ✓            -            -   (NEW v16.0)
 ```
 
 ### Task Complexity Router
 
 | Complexity | Worker Pool  | Model Tier    | Use Case               |
 | ---------- | ------------ | ------------- | ---------------------- |
-| trivial    | fast pool    | haiku/gpt-4.1 | Doc updates, renames   |
-| standard   | coder pool   | sonnet/gpt-5  | Feature implementation |
-| complex    | premium pool | opus/gpt-5.1  | Architecture, security |
+| trivial    | fast pool    | haiku/o4-mini | Doc updates, renames   |
+| standard   | coder pool   | sonnet/gpt-4.1 | Feature implementation |
+| complex    | premium pool | opus/gemini-2.5-pro | Architecture, security |
 | review     | critic pool  | alternating   | Code review, audits    |
 
 ### File Claims Flow
@@ -1117,13 +1132,14 @@ L2 Manager receives assignment from L1
 1. classifyTaskComplexity(task) → trivial | standard | complex | review
      │
      ▼
-2. inferWorkerRole(task) → coder | tester | security | architect | documenter | debugger
+2. inferWorkerRole(task) → coder | tester | security | architect | documenter |
+                           debugger | integration | database | devops | auth
      │
      ▼
 3. getModelForComplexity(complexity) → fast | coder | premium | critic model pool
      │
      ▼
-4. getRoleAgentName(role) → "worker-coder" | "worker-tester" | ...
+4. getRoleAgentName(role) → "worker-coder" | "worker-tester" | "worker-auth" | ...
      │
      ▼
 5. task(subagent_type=agentName, prompt=rolePrompt + taskDetails)
@@ -1209,7 +1225,7 @@ See [`docs/agent-definition-guide.md`](docs/agent-definition-guide.md) for the c
 
 1. Create `opencode/agents/worker-<role>.md` with YAML frontmatter (mode: subagent, tools, system prompt)
 2. Register in `opencode/opencode.json` under the `agent` section
-3. Update `getRoleAgentName()` in `mcp-server/src/state.ts` to map the role
+3. Update `getRoleAgentName()` in `mcp-server/src/hierarchy.ts` to map the role
 4. Build: `cd mcp-server && npm run build`
 
 ### Persistent Memory & Self-Learning (v16.0)
@@ -1328,6 +1344,17 @@ The paper demonstrates that cooperation emerges naturally in multi-agent RL when
 ---
 
 ## 📋 Changelog
+
+### v17.0 (2026-02-28)
+
+- **Modular architecture refactor** — Monolithic `state.ts` (3600+ lines) split into 9 focused modules: `swarm-types.ts`, `model-registry.ts`, `rate-limiter.ts`, `phase-engine.ts`, `session.ts`, `board.ts`, `prompt-builder.ts`, `hierarchy.ts`, `debate.ts`, `file-claims.ts`. `state.ts` remains as a backward-compatible barrel re-export.
+- **Tools modularized** — All tool handlers split into `tools/` directory with 10 files grouped by function
+- **4 new domain worker agents** — `worker-integration` (API clients, React Query, frontend-backend wiring), `worker-database` (Prisma/Drizzle, migrations, query optimization), `worker-devops` (GitHub Actions, Docker, K8s, Terraform), `worker-auth` (JWT, RBAC, OAuth2/OIDC)
+- **New phases in full-swarm and unleashed** — `security` (auto-parallel with implement), `integration`, `document`, `devops` phases added; full-swarm is now 17 phases
+- **Task complexity analysis** — `analyzeTaskComplexity()` detects required domains and auto-selects tier with domain-specific worker pre-selection
+- **Model registry updated** — Reflects actual available models: claude-opus-4.6, gemini-2.5-pro, claude-sonnet-4.6, gpt-4.1, gpt-4o, claude-haiku-4.5, o4-mini, gemini-2.5-flash
+- **19 MCP tools total** (up from 17) — added `swarm_validate`, `swarm_throttle` as separate registered tools
+- **Security hardening** — cryptographic session IDs (randomUUID), shell injection prevention (writeFileSync), input validation at all tool boundaries, error boundary pattern
 
 ### v16.0 (2026-02-26)
 

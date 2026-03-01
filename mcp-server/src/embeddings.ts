@@ -25,6 +25,12 @@ function cacheSet(key: string, value: Float32Array): void {
 // Lazy-loaded pipeline
 let pipelineInstance: any = null;
 let loadingPromise: Promise<any> | null = null;
+let embeddingsAvailable = false;
+
+/** Returns true if the real ONNX embedding model loaded successfully. */
+export function isEmbeddingsAvailable(): boolean {
+  return embeddingsAvailable;
+}
 
 async function getPipeline(): Promise<any> {
   if (pipelineInstance) return pipelineInstance;
@@ -45,10 +51,14 @@ async function getPipeline(): Promise<any> {
           "Xenova/all-MiniLM-L6-v2",
           { cache_dir: new URL("../data/models/", import.meta.url).pathname },
         );
+        if (pipelineInstance) {
+          embeddingsAvailable = true;
+        }
       }
     } catch {
       // Model loading failed — fallback to hash-based embedding
       pipelineInstance = null;
+      embeddingsAvailable = false;
     }
     return pipelineInstance;
   })();
@@ -109,6 +119,9 @@ export async function embed(text: string): Promise<Float32Array> {
     const output = await pipe(text, { pooling: "mean", normalize: true });
     vector = new Float32Array(output.data);
   } else {
+    console.error(
+      "[embeddings] WARNING: Semantic search unavailable - model failed to load. Pattern memory disabled.",
+    );
     vector = hashEmbed(text);
   }
 

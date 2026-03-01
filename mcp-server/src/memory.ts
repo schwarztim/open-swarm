@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS workers (
   created_at INTEGER NOT NULL,
   completed_at INTEGER
 );
+
+CREATE INDEX IF NOT EXISTS idx_patterns_session ON patterns(session_id);
+CREATE INDEX IF NOT EXISTS idx_patterns_confidence ON patterns(confidence);
+CREATE INDEX IF NOT EXISTS idx_patterns_task_type ON patterns(task_type);
+CREATE INDEX IF NOT EXISTS idx_outcomes_session ON outcomes(session_id);
+CREATE INDEX IF NOT EXISTS idx_outcomes_task_type ON outcomes(task_type);
 `;
 
 // ── Init ──────────────────────────────────────────────────────────────
@@ -367,11 +373,28 @@ export const memoryStore = {
   cleanExpired(): number {
     const now = Date.now();
     if (db) {
+      // Collect expired IDs before deleting so we can remove from vector store
+      const expiredRows = db
+        .prepare(
+          "SELECT id FROM patterns WHERE expires_at IS NOT NULL AND expires_at < ?",
+        )
+        .all(now) as Array<{ id: string }>;
+
       const info = db
         .prepare(
           "DELETE FROM patterns WHERE expires_at IS NOT NULL AND expires_at < ?",
         )
         .run(now);
+
+      // Remove orphaned vectors and compact
+      const vs = getVectorStore();
+      for (const row of expiredRows) {
+        vs.remove(row.id);
+      }
+      if (expiredRows.length > 0) {
+        vs.compact();
+      }
+
       return info.changes ?? 0;
     }
     let count = 0;
@@ -381,6 +404,9 @@ export const memoryStore = {
         getVectorStore().remove(id);
         count++;
       }
+    }
+    if (count > 0) {
+      getVectorStore().compact();
     }
     return count;
   },
@@ -643,6 +669,37 @@ export const memoryStore = {
       return (rows as any[]).map(rowToWorker);
     }
     return [...memWorkers.values()].filter((w) => w.sessionId === sessionId);
+  },
+
+  /**
+   * Delete outcomes and workers older than maxAgeDays.
+   * Returns the total count of deleted rows.
+   */
+  cleanupOldData(maxAgeDays: number = 30): number {
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    if (db) {
+      const outInfo = db
+        .prepare("DELETE FROM outcomes WHERE created_at < ?")
+        .run(cutoff);
+      const workerInfo = db
+        .prepare("DELETE FROM workers WHERE created_at < ?")
+        .run(cutoff);
+      return (outInfo.changes ?? 0) + (workerInfo.changes ?? 0);
+    }
+    let count = 0;
+    for (const [id, o] of memOutcomes) {
+      if (o.createdAt < cutoff) {
+        memOutcomes.delete(id);
+        count++;
+      }
+    }
+    for (const [id, w] of memWorkers) {
+      if (w.createdAt < cutoff) {
+        memWorkers.delete(id);
+        count++;
+      }
+    }
+    return count;
   },
 };
 

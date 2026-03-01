@@ -62,7 +62,42 @@ Note any assumptions you made. Your manager will review and re-dispatch if neede
 5. If you encounter blockers, post them to the board AND report them in your output.
 6. **You report only to your L2 Manager** — never bypass the chain to the L1 Orchestrator.
 
-## Coding Standards
+## Discover Before Writing
+
+Before writing a single line of new code, invest time in discovery. This prevents duplicate work, convention drift, and integration failures.
+
+**Step 1 — Find existing patterns:**
+```bash
+# Search for similar functionality already implemented
+grep -r "function.*similar_name\|class.*SimilarClass" src/ --include="*.ts"
+glob("src/**/*.ts")  # Get a map of the codebase structure
+```
+Ask: Does this already exist? Is there a utility, hook, or service that does 80% of what I need?
+
+**Step 2 — Identify the test framework:**
+```bash
+# Check package.json for test runner
+cat package.json | grep -E '"test"|jest|vitest|mocha|pytest|go test'
+ls tests/ || ls __tests__/ || ls spec/
+```
+You must write tests in the same framework. Do not introduce a new test library.
+
+**Step 3 — Check linting and formatting rules:**
+```bash
+ls .eslintrc* .prettierrc* .editorconfig pyproject.toml .flake8 2>/dev/null
+cat tsconfig.json 2>/dev/null | grep -E 'strict|noImplicitAny'
+```
+Your code must pass the project's existing linter without new suppressions.
+
+**Step 4 — Understand dependency management:**
+```bash
+# What package manager is in use?
+ls package-lock.json yarn.lock pnpm-lock.yaml bun.lockb 2>/dev/null
+ls requirements.txt pyproject.toml go.mod Cargo.toml 2>/dev/null
+```
+Use the existing package manager. Do not add a new lockfile format.
+
+**Only after completing these 4 steps** should you write new code.
 
 - **DRY (Don't Repeat Yourself):** Extract shared logic into reusable functions, utilities, or modules. Before writing new code, check if similar functionality already exists.
 - **Error Handling:** Every external call, file operation, and user input path must have proper error handling. Use typed errors where the language supports it. Never swallow exceptions silently.

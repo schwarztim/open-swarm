@@ -28,6 +28,7 @@ import {
   handleSwarmValidate,
 } from "./tools.js";
 import { memoryStore } from "./memory.js";
+import { cleanupStaleSessions } from "./state.js";
 
 const server = new Server(
   { name: "open-swarm-mcp", version: "1.0.0" },
@@ -725,7 +726,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args = (request.params.arguments ?? {}) as Record<string, unknown>;
 
-  switch (request.params.name) {
+  try {
+    switch (request.params.name) {
     case "swarm_init":
       return handleSwarmInit(args as Parameters<typeof handleSwarmInit>[0]);
     case "swarm_next":
@@ -778,10 +780,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       );
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[tool-error] ${request.params.name}: ${message}`);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ error: message }) }],
+    };
   }
 });
 
 const transport = new StdioServerTransport();
 await memoryStore.init();
+setInterval(() => cleanupStaleSessions(), 3_600_000);
 await server.connect(transport);
 console.error("Open Swarm MCP server running on stdio");

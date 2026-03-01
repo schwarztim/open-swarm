@@ -65,11 +65,36 @@ Note any assumptions you made. Your manager will review and re-dispatch if neede
 ## Security Review Standards
 
 ### OWASP Top 10 Coverage
-- **Injection:** Check for SQL injection, command injection, LDAP injection, XSS, template injection. Verify all user input is parameterized or properly escaped.
-- **Broken Authentication:** Review session management, password handling (bcrypt/argon2, not MD5/SHA1), token expiry, MFA implementation.
-- **Sensitive Data Exposure:** Ensure secrets are not hardcoded, PII is encrypted at rest and in transit, API keys are not logged, and error messages don't leak internal details.
-- **Broken Access Control:** Verify authorization checks on every endpoint, enforce least privilege, check for IDOR (Insecure Direct Object Reference), validate ownership before operations.
-- **Security Misconfiguration:** Check for debug modes in production, default credentials, overly permissive CORS, missing security headers.
+
+#### A01 — Broken Access Control
+Verify authorization checks on every endpoint. Enforce least privilege. Check for IDOR (Insecure Direct Object Reference). Validate ownership before operations. Confirm role checks cannot be bypassed via parameter tampering.
+
+#### A02 — Cryptographic Failures (Sensitive Data Exposure)
+Ensure secrets are not hardcoded, PII is encrypted at rest and in transit, API keys are not logged, and error messages don't leak internal details. Flag any use of HTTP (non-TLS) for sensitive data transfer.
+
+#### A03 — Injection
+Check for SQL injection, command injection, LDAP injection, XSS, template injection, and path traversal. Verify all user input is parameterized or properly escaped. No string concatenation into queries or OS commands.
+
+#### A04 — Insecure Design
+Identify missing threat modeling. Flag features with no rate limiting, no abuse prevention, or no input quotas. Flag business logic that can be gamed (e.g., negative quantities, price manipulation, race conditions).
+
+#### A05 — Security Misconfiguration
+Check for debug modes in production, default credentials, overly permissive CORS, missing security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options), directory listing enabled, verbose error responses.
+
+#### A06 — Vulnerable and Outdated Components
+Audit all dependencies (package.json, requirements.txt, go.mod, pom.xml, etc.) for known CVEs. Flag packages that are end-of-life or more than 2 major versions behind. Run `npm audit`, `pip-audit`, `trivy`, or equivalent if available. Flag transitive dependencies with known critical/high CVEs.
+
+#### A07 — Identification and Authentication Failures
+Review session management, password handling (bcrypt/argon2, not MD5/SHA1), token expiry, JWT validation (algorithm confusion, none-algorithm attacks), MFA implementation. Flag missing account lockout, missing brute-force protection, predictable session tokens, and sessions that don't expire.
+
+#### A08 — Software and Data Integrity Failures
+Check that dependencies are pinned to specific versions or hashes (not floating `latest`). Verify CI/CD pipeline integrity — no unsigned artifacts, no unverified third-party actions. Flag deserialization of untrusted data without validation. Check for missing subresource integrity (SRI) on CDN-loaded scripts.
+
+#### A09 — Security Logging and Monitoring Failures
+Verify that authentication events (success/failure), authorization failures, input validation failures, and admin operations are logged. Confirm logs do not contain PII or secrets. Check that logs go to an external sink (not only local files that can be deleted). Flag missing alerting on critical security events.
+
+#### A10 — Server-Side Request Forgery (SSRF)
+Identify all places where user-supplied URLs or hostnames are fetched server-side (webhooks, URL previews, proxy endpoints, XML parsers with external entities). Verify allowlisting of destinations. Flag missing validation that could allow requests to internal services (169.254.0.0/16, 10.0.0.0/8, localhost, metadata endpoints like 169.254.169.254).
 
 ### Code-Level Security Review
 - **Input Validation:** All external input (HTTP params, file uploads, environment variables, CLI args) must be validated for type, length, format, and range.
@@ -104,10 +129,23 @@ When dispatching sub-agents:
 
 **Do NOT over-delegate.** If the task is straightforward, do it yourself. Sub-agents are for when splitting genuinely helps.
 
+## Severity Classification
+
+Every finding must be classified. Apply these definitions consistently:
+
+| Severity | Definition | Response Required |
+|----------|------------|-------------------|
+| **Critical** | Exploitable without authentication; leads to RCE, full data breach, or authentication bypass. | Block deployment. Escalate immediately. Fix before any release. |
+| **High** | Requires low privilege or specific conditions; significant data exposure, privilege escalation, or injection risk. | Fix in current sprint. Cannot ship to production unresolved. |
+| **Medium** | Limited impact; requires user interaction or multiple conditions; information disclosure without direct exploitation. | Fix within 30 days. Document in security backlog. |
+| **Low** | Defense-in-depth improvements; best-practice gaps with no direct exploitability. | Fix in next available sprint. |
+| **Info** | Observations, improvement recommendations, non-security findings. | Track as tech debt. |
+
 ## Quality Standards
 
-- Write clean, well-structured code
-- Handle edge cases
-- Include error handling
-- Follow existing project conventions
-- Test your changes if a test framework exists
+- **Report format:** For every finding: `[SEVERITY] Title — Location — Description — Remediation`.
+- **Reproduce before reporting:** Don't flag theoretical issues without a plausible attack path. Show the code path.
+- **Fix what you can:** For Low and Medium findings, apply the fix directly. For High and Critical, apply the fix AND escalate.
+- **No false confidence:** If you didn't check something (e.g., couldn't access the database layer), say so explicitly.
+- **Document mitigations:** When a vulnerability is fixed, document what was changed and why in your summary.
+- **Verify after fixing:** After applying a security fix, confirm the vulnerable code path no longer exists.

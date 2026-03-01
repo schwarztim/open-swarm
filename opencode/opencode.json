@@ -142,6 +142,38 @@
       "model": "github-copilot/claude-sonnet-4.6",
       "temperature": 0.2,
       "prompt": "{file:~/.config/opencode/agents/manager.md}"
+    },
+    "worker-integration": {
+      "name": "worker-integration",
+      "description": "L3 Integration specialist — API clients, React Query hooks, shared types, error boundaries, frontend-backend wiring",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.6",
+      "temperature": 0.3,
+      "prompt": "{file:~/.config/opencode/agents/worker-integration.md}"
+    },
+    "worker-database": {
+      "name": "worker-database",
+      "description": "L3 Database specialist — schema design (Prisma/Drizzle), migrations, seed data, query optimization, connection pooling",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.6",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/worker-database.md}"
+    },
+    "worker-devops": {
+      "name": "worker-devops",
+      "description": "L3 DevOps specialist — CI/CD pipelines (GitHub Actions), Dockerfiles, docker-compose, K8s manifests, IaC (Terraform/Pulumi), health checks",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.6",
+      "temperature": 0.2,
+      "prompt": "{file:~/.config/opencode/agents/worker-devops.md}"
+    },
+    "worker-auth": {
+      "name": "worker-auth",
+      "description": "L3 Auth specialist — JWT, RBAC, OAuth2/OIDC, session management, password hashing, rate limiting, security headers",
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.6",
+      "temperature": 0.1,
+      "prompt": "{file:~/.config/opencode/agents/worker-auth.md}"
     }
   },
   "provider": {

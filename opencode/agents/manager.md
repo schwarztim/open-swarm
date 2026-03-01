@@ -1,6 +1,7 @@
 ---
 description: "L2 Agent Manager — coordinates L3 workers, plans, synthesizes, reports to L1 orchestrator"
 mode: subagent
+model: github-copilot/claude-sonnet-4.6
 tools:
   write: true
   edit: true
