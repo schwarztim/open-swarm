@@ -13,6 +13,7 @@ import {
   fastPool,
 } from "../state.js";
 import { ok, err, type ToolResult } from "./shared.js";
+import { appendEvent, SwarmEventType } from "../event-store.js";
 
 // ── swarm_throttle ────────────────────────────────────────────────────
 
@@ -48,6 +49,16 @@ export function handleSwarmThrottle(args: {
   const matchedPreset = Object.entries(RATE_PRESETS).find(
     ([_, v]) => v.concurrency === session.concurrency,
   );
+
+  if (args.concurrency !== undefined) {
+    try {
+      appendEvent(args.sessionId, SwarmEventType.THROTTLE_CHANGED, {
+        previous: previousConcurrency,
+        current: session.concurrency,
+        preset: matchedPreset ? matchedPreset[0] : "custom",
+      });
+    } catch { /* event store is best-effort */ }
+  }
 
   // Count in-flight groups
   const inFlight = session.agentGroups.filter(

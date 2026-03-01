@@ -13,6 +13,7 @@ import {
 import { judge, distill } from "../learning.js";
 import { workerRegistry } from "../workers.js";
 import { generateCriticPrompt, generateRetryPrompt } from "../scoring.js";
+import { analyzeFailures, type FailureAnalysis } from "../smart-retry.js";
 import {
   ok,
   err,
@@ -21,6 +22,7 @@ import {
   computeConvergence,
   type ToolResult,
 } from "./shared.js";
+import { appendEvent, SwarmEventType } from "../event-store.js";
 
 function computeDimensions(scores: Array<{ workstream: string; score: number; criticalIssues?: number }>): {
   dimensions: Record<string, number>;
@@ -130,7 +132,7 @@ export async function handleSwarmGate(args: {
 
   // Clamp scores to valid range [0, 10]
   for (const s of args.scores) {
-    s.score = Math.max(0, Math.min(10, s.score));
+    s.score = Number.isFinite(s.score) ? Math.max(0, Math.min(10, s.score)) : 0;
     s.criticalIssues = Math.max(0, s.criticalIssues);
   }
 
@@ -153,6 +155,14 @@ export async function handleSwarmGate(args: {
       score: s.score,
       criticalIssues: s.criticalIssues,
     });
+    try {
+      appendEvent(args.sessionId, SwarmEventType.SCORE_SUBMITTED, {
+        workstream: s.workstream,
+        score: s.score,
+        criticalIssues: s.criticalIssues,
+        round: currentRound,
+      });
+    } catch { /* event store is best-effort */ }
   }
 
   // Compute convergence metrics
@@ -210,6 +220,12 @@ export async function handleSwarmGate(args: {
       "",
     );
     const { dimensions, recommendation } = computeDimensions(args.scores);
+    try {
+      appendEvent(args.sessionId, SwarmEventType.GATE_PASSED, {
+        round: currentRound,
+        scores: args.scores,
+      });
+    } catch { /* event store is best-effort */ }
     return ok({
       proceed: true,
       sessionId: session.id,
@@ -241,6 +257,14 @@ export async function handleSwarmGate(args: {
       if (ws) ws.score = 7;
     }
     advancePhase(session.id);
+    try {
+      appendEvent(args.sessionId, SwarmEventType.GATE_FAILED, {
+        round: currentRound,
+        reason: "max_loops_exceeded",
+        failing: failing.map((s) => s.workstream),
+        forced: true,
+      });
+    } catch { /* event store is best-effort */ }
     return ok({
       proceed: true,
       forced: true,
@@ -269,6 +293,35 @@ export async function handleSwarmGate(args: {
       ? "review"
       : phases[Math.max(0, session.currentPhaseIndex - 1)].name;
 
+  try {
+    appendEvent(args.sessionId, SwarmEventType.GATE_FAILED, {
+      round: currentRound,
+      reason: "scores_below_threshold",
+      failing: failing.map((s) => ({ workstream: s.workstream, score: s.score })),
+      retryPhase,
+    });
+  } catch { /* event store is best-effort */ }
+
+  // Smart retry analysis — targeted per-workstream failure breakdown
+  const gateResult = {
+    proceed: false,
+    failedWorkstreams: failing.map((s) => s.workstream),
+    retryAllowed: true,
+    message: "",
+  };
+  const retryPlanData = analyzeFailures(session, gateResult, failing);
+  const retryPlan = {
+    failedWorkstreams: retryPlanData.failedWorkstreams,
+    totalWorkstreams: retryPlanData.totalWorkstreams,
+    estimatedSavings: retryPlanData.estimatedSavings,
+    analyses: retryPlanData.analyses as FailureAnalysis[],
+  };
+  // Convert Map to plain object for JSON serialization
+  const targetedRetryPrompts: Record<string, string> = {};
+  for (const [wsId, prompt] of retryPlanData.retryPrompts) {
+    targetedRetryPrompts[wsId] = prompt;
+  }
+
   return ok({
     proceed: false,
     sessionId: session.id,
@@ -280,6 +333,8 @@ export async function handleSwarmGate(args: {
     })),
     retryPhase,
     retryInstructions: retryDetails.join("\n\n---\n\n"),
+    retryPlan,
+    targetedRetryPrompts,
     ...(includeBoard
       ? {}
       : {
@@ -362,6 +417,14 @@ export function handleSwarmMerge(args: {
     `${mergeDef.name} phase`,
     mergePrompt,
   );
+
+  try {
+    appendEvent(args.sessionId, SwarmEventType.MERGE_COMPLETED, {
+      phase: mergeDef.name,
+      phaseIndex: phaseIdx,
+      outputCount: args.outputs.length,
+    });
+  } catch { /* event store is best-effort */ }
 
   return ok({
     sessionId: session.id,

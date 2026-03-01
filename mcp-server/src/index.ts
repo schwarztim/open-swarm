@@ -26,9 +26,11 @@ import {
   handleSwarmWatch,
   handleSwarmWorker,
   handleSwarmValidate,
+  handleSwarmEvents,
 } from "./tools.js";
 import { memoryStore } from "./memory.js";
 import { cleanupStaleSessions } from "./state.js";
+import { initEventStore } from "./event-store.js";
 
 const server = new Server(
   { name: "open-swarm-mcp", version: "1.0.0" },
@@ -717,6 +719,30 @@ const TOOLS = [
       required: ["sessionId", "workstream", "results"],
     },
   },
+  {
+    name: "swarm_events",
+    description:
+      "Query the immutable event log for a swarm session. Returns all state mutation events in order, optionally filtered by event type or sequence number. Useful for debugging, auditing, and replaying session history.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Swarm session ID" },
+        eventType: {
+          type: "string",
+          description: "Filter by event type (e.g. 'gate.passed', 'phase.advanced')",
+        },
+        after: {
+          type: "number",
+          description: "Return only events with sequence number greater than this value",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of events to return (default: 50)",
+        },
+      },
+      required: ["sessionId"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -778,6 +804,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return handleSwarmValidate(
         args as Parameters<typeof handleSwarmValidate>[0],
       );
+    case "swarm_events":
+      return handleSwarmEvents(args as Parameters<typeof handleSwarmEvents>[0]);
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
     }
@@ -792,6 +820,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const transport = new StdioServerTransport();
 await memoryStore.init();
+initEventStore();
 setInterval(() => cleanupStaleSessions(), 3_600_000);
 await server.connect(transport);
 console.error("Open Swarm MCP server running on stdio");

@@ -6,6 +6,7 @@ import type { Tier, ExecutionMode, SwarmSession, PhaseState } from "./swarm-type
 import type { RatePreset } from "./model-registry.js";
 import { TIER_PHASES } from "./phase-engine.js";
 import { resolveRateLimit } from "./rate-limiter.js";
+import { appendEvent, SwarmEventType } from "./event-store.js";
 
 export const sessions = new Map<string, SwarmSession>();
 
@@ -54,6 +55,9 @@ export function createSession(
   };
 
   sessions.set(session.id, session);
+  try {
+    appendEvent(session.id, SwarmEventType.SESSION_CREATED, { tier, task, executionMode });
+  } catch { /* event store is best-effort */ }
   return session;
 }
 
@@ -66,6 +70,9 @@ export function getAllSessions(): SwarmSession[] {
 }
 
 export function destroySession(id: string): boolean {
+  try {
+    appendEvent(id, SwarmEventType.SESSION_DESTROYED, { sessionId: id });
+  } catch { /* event store is best-effort */ }
   return sessions.delete(id);
 }
 

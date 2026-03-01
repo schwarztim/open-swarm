@@ -7,6 +7,7 @@ import {
   getBlockedWorkstreams,
 } from "../state.js";
 import { ok, err, validateString, type ToolResult } from "./shared.js";
+import { appendEvent, SwarmEventType } from "../event-store.js";
 
 // ── swarm_relay ───────────────────────────────────────────────────────
 
@@ -36,6 +37,16 @@ export function handleSwarmRelay(args: {
     level,
     args.group,
   );
+
+  try {
+    appendEvent(args.sessionId, SwarmEventType.RELAY_MESSAGE, {
+      workstream: args.workstream,
+      type,
+      level,
+      group: args.group,
+      contentPreview: args.content.substring(0, 200),
+    });
+  } catch { /* event store is best-effort */ }
 
   // Mark workstream status if blocker
   if (type === "blocker") {
@@ -401,11 +412,17 @@ function handleDebateStart(
     debate.id,
   );
 
+  try {
+    appendEvent(session.id, SwarmEventType.DEBATE_STARTED, {
+      debateId: debate.id,
+      topic: args.topic,
+      trigger,
+      groupId: args.groupId,
+      participantCount,
+    });
+  } catch { /* event store is best-effort */ }
+
   return ok({
-    debateId: debate.id,
-    sessionId: session.id,
-    topic: debate.topic,
-    trigger: debate.trigger,
     initiatorLevel: debate.initiatorLevel,
     groupId: debate.groupId,
     participants: debate.participants.map((p) => ({
@@ -741,6 +758,15 @@ function handleDebateSynthesize(
       debate.groupId,
       debate.id,
     );
+
+    try {
+      appendEvent(session.id, SwarmEventType.DEBATE_RESOLVED, {
+        debateId: debate.id,
+        topic: debate.topic,
+        rounds: debate.currentRound,
+        groupId: debate.groupId,
+      });
+    } catch { /* event store is best-effort */ }
 
     return ok({
       debateId: debate.id,

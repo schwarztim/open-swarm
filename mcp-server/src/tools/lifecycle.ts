@@ -38,6 +38,7 @@ import {
   DRIFT_THRESHOLD,
   type ToolResult,
 } from "./shared.js";
+import { appendEvent, SwarmEventType } from "../event-store.js";
 
 // ── swarm_next ────────────────────────────────────────────────────────
 
@@ -625,6 +626,17 @@ export function handleSwarmSubmit(args: {
   if (allCollected) {
     phase.status = "done";
   }
+
+  // Append event
+  try {
+    appendEvent(args.sessionId, SwarmEventType.WORKSTREAM_OUTPUT_SUBMITTED, {
+      phase: phase.name,
+      phaseIndex: phaseIdx,
+      agentId: args.agentId,
+      workstreamId: args.agentId ?? `ws-${phase.outputs.length - 1}`,
+      allCollected,
+    });
+  } catch { /* event store is best-effort */ }
 
   // Determine next action
   let nextAction: string;

@@ -9,6 +9,7 @@ import {
   getSynthesizerModel,
 } from "./model-registry.js";
 import type { Tier, PhaseDefinition, SwarmSession, PhaseState } from "./swarm-types.js";
+import { appendEvent, SwarmEventType } from "./event-store.js";
 
 function def(
   name: string,
@@ -561,5 +562,13 @@ export function advancePhase(session: SwarmSession): PhaseState {
   }
 
   session.currentPhaseIndex = nextIndex;
+  try {
+    appendEvent(session.id, SwarmEventType.PHASE_ADVANCED, {
+      oldPhase: currentPhase.name,
+      oldIndex: currentIndex,
+      newPhase: session.phases[nextIndex].name,
+      newIndex: nextIndex,
+    });
+  } catch { /* event store is best-effort */ }
   return session.phases[nextIndex];
 }

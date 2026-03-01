@@ -8,6 +8,7 @@ import {
   postToBoard,
 } from "../state.js";
 import { ok, err, type ToolResult } from "./shared.js";
+import { appendEvent, SwarmEventType } from "../event-store.js";
 
 // ── swarm_claim ───────────────────────────────────────────────────────
 
@@ -47,6 +48,15 @@ export function handleSwarmClaim(args: {
         );
       }
 
+      try {
+        appendEvent(args.sessionId, SwarmEventType.CLAIM_ACQUIRED, {
+          paths: result.claimed,
+          workstreamId: args.workstreamId,
+          groupId: args.groupId,
+          conflicts: result.conflicts.length,
+        });
+      } catch { /* event store is best-effort */ }
+
       return ok({
         claimed: result.claimed,
         conflicts: result.conflicts,
@@ -65,6 +75,14 @@ export function handleSwarmClaim(args: {
         return err("workstreamId required for release action");
 
       const released = releaseFiles(session, args.paths, args.workstreamId);
+
+      try {
+        appendEvent(args.sessionId, SwarmEventType.CLAIM_RELEASED, {
+          paths: released,
+          workstreamId: args.workstreamId,
+        });
+      } catch { /* event store is best-effort */ }
+
       return ok({
         released,
         nextAction: `✅ ${released.length} file(s) released by ${args.workstreamId}.`,
