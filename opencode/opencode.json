@@ -50,23 +50,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker.md}"
     },
     "worker-coder": {
       "name": "worker-coder",
@@ -74,23 +58,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-coder.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-coder.md}"
     },
     "worker-tester": {
       "name": "worker-tester",
@@ -98,23 +66,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/worker-tester.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-tester.md}"
     },
     "worker-security": {
       "name": "worker-security",
@@ -122,23 +74,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.1,
-      "prompt": "{file:~/.config/opencode/agents/worker-security.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-security.md}"
     },
     "worker-architect": {
       "name": "worker-architect",
@@ -146,23 +82,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/worker-architect.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-architect.md}"
     },
     "worker-documenter": {
       "name": "worker-documenter",
@@ -170,23 +90,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-haiku-4.5",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-documenter.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-documenter.md}"
     },
     "worker-debugger": {
       "name": "worker-debugger",
@@ -194,23 +98,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/worker-debugger.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-debugger.md}"
     },
     "worker-anthropic": {
       "name": "worker-anthropic",
@@ -218,23 +106,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.3,
-      "prompt": "{file:~/.config/opencode/agents/worker-anthropic.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-anthropic.md}"
     },
     "worker-haiku": {
       "name": "worker-haiku",
@@ -242,59 +114,25 @@
       "mode": "subagent",
       "model": "github-copilot/claude-haiku-4.5",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/worker-haiku.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/worker-haiku.md}"
     },
     "swarm": {
       "name": "swarm",
       "description": "Swarm orchestrator - delegates through Open Swarm MCP. Cannot edit files directly.",
-      "mode": "primary",
+      "mode": "subagent",
       "model": "github-copilot/claude-opus-4.6",
       "temperature": 0.1,
       "prompt": "{file:~/.config/opencode/agents/swarm.md}",
-      "tools": {
-        "write": false,
-        "edit": false,
-        "patch": false,
-        "bash": true,
-        "task": true,
-        "glob": false,
-        "grep": false,
-        "ls": false,
-        "view": false,
-        "fetch": false,
-        "diagnostics": false,
-        "swarm_init": true,
-        "swarm_next": true,
-        "swarm_submit": true,
-        "swarm_merge": true,
-        "swarm_status": true,
-        "swarm_gate": true,
-        "swarm_collect": true,
-        "swarm_models": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_dispatch": true,
-        "swarm_throttle": true,
-        "swarm_learn": true,
-        "swarm_watch": true,
-        "swarm_worker": true,
-        "swarm_validate": true
+      "permission": {
+        "edit": "deny",
+        "read": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "list": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "bash": "allow",
+        "task": "allow"
       }
     },
     "manager-anthropic": {
@@ -303,23 +141,7 @@
       "mode": "subagent",
       "model": "github-copilot/claude-sonnet-4.6",
       "temperature": 0.2,
-      "prompt": "{file:~/.config/opencode/agents/manager.md}",
-      "tools": {
-        "write": true,
-        "edit": true,
-        "patch": true,
-        "bash": true,
-        "glob": true,
-        "grep": true,
-        "ls": true,
-        "view": true,
-        "fetch": true,
-        "diagnostics": true,
-        "task": true,
-        "swarm_relay": true,
-        "swarm_board": true,
-        "swarm_validate": true
-      }
+      "prompt": "{file:~/.config/opencode/agents/manager.md}"
     }
   },
   "provider": {
